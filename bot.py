@@ -11,9 +11,10 @@ from telegram.ext import (
     CallbackQueryHandler,
     MessageHandler,
     ContextTypes,
-    filters,  # Updated to lowercase 'filters'
+    filters,
 )
 from telegram.error import TelegramError
+from datetime import datetime
 
 # Настройка логирования
 logging.basicConfig(
@@ -25,36 +26,29 @@ logger = logging.getLogger(__name__)
 # Конфигурация
 CONFIG = {
     "DELAY_SECONDS": int(os.getenv("DELAY_SECONDS", 7200)),  # 2 часа по умолчанию
-    "MAX_MESSAGE_LENGTH": 3900,
-    "OPENAI_MAX_TOKENS": 6000,
-    "OPENAI_MAX_CONCURRENT": 5,
-    "MIN_TEXT_LENGTH_TAROT": 100,
-    "MIN_TEXT_LENGTH_MATRIX": 15,
+    "MAX_MESSAGE_LENGTH": 3900,  # Ограничение Telegram на длину сообщения
+    "OPENAI_MAX_TOKENS": 6000,   # Максимум токенов для OpenAI
+    "OPENAI_MAX_CONCURRENT": 5,  # Максимум одновременных запросов к OpenAI
+    "MIN_TEXT_LENGTH_TAROT": 100,  # Минимальная длина текста для Таро
+    "MIN_TEXT_LENGTH_MATRIX": 15,  # Минимальная длина текста для Матрицы
 }
 
 # Настройка API
-# Ключи берутся только из переменных окружения
 openai.api_key = os.getenv("OPENAI_API_KEY")
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 # Проверка токенов
-if not BOT_TOKEN:
-    logger.error("TELEGRAM_TOKEN не установлен в переменных окружения.")
-    raise ValueError("TELEGRAM_TOKEN не установлен в переменных окружения.")
-BOT_TOKEN = BOT_TOKEN.strip()
-if not re.match(r"^\d{8,10}:[A-Za-z0-9_-]{35}$", BOT_TOKEN):
-    logger.error(f"Неверный формат токена: '{BOT_TOKEN}'.")
-    raise ValueError(f"Неверный токен бота: '{BOT_TOKEN}'.")
-if not openai.api_key:
-    logger.error("OPENAI_API_KEY не установлен в переменных окружения.")
-    raise ValueError("OPENAI_API_KEY не установлен в переменных окружения.")
+if not BOT_TOKEN or not openai.api_key:
+    logger.error("Токены не установлены в переменных окружения.")
+    raise ValueError("Токены TELEGRAM_TOKEN и OPENAI_API_KEY должны быть установлены.")
+
 logger.info("Токены бота и OpenAI проверены.")
 
-# Хранилище данных пользователей (в памяти)
-user_data: Dict[int, dict] = {}
-completed_users: set = set()
+# Хранилище данных
+user_data: Dict[int, dict] = {}  # Данные пользователей {user_id: {"type": str, "text": str}}
+completed_users: set = set()      # Пользователи, уже получившие услугу
 
-# Промпты
+# Промпты для OpenAI
 PROMPT_TAROT = """
 Ты — Замира, 42 года. Женщина с даром, профессиональный таролог, ясновидящая и эзотерик с 20+ лет опыта. Ты работаешь дистанционно, по фотографии, имени и дате рождения. Твоя задача — создавать развёрнутые, реалистичные и глубоко проработанные расклады на картах Таро по конкретным вопросам клиента.
 
@@ -218,18 +212,26 @@ CONTACT_TEXT = """
 @zamira_esoteric
 """
 
-# Утилиты
+# Утилитарные функции
 def clean_text(text: str) -> str:
     """Очистка текста от невидимых символов."""
     return "".join(c for c in text if c.isprintable() or c in "\n\r\t ")
 
 def validate_date(date_text: str) -> bool:
-    """Проверка формата даты ДД.ММ.ГГГГ."""
-    return bool(re.match(r"^\d{2}\.\d{2}\.\d{4}$", date_text))
+    """Проверка формата даты ДД.ММ.ГГГГ и её реальности."""
+    if not re.match(r"^\d{2}\.\d{2}\.\d{4}$", date_text):
+        return False
+    try:
+        date = datetime.strptime(date_text, "%d.%m.%Y")
+        if date.year < 1900:  # Ограничение на слишком старые даты
+            return False
+        return True
+    except ValueError:
+        return False
 
 # Клавиатуры
 def get_main_keyboard():
-    """Главное меню."""
+    """Главное меню с кнопками."""
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("Расклад Таро 🃏", callback_data="tarot")],
@@ -243,7 +245,7 @@ def get_confirm_keyboard(tarot=False):
     button_text = "✅ Подтвердить предысторию" if tarot else "✅ Подтвердить"
     return InlineKeyboardMarkup([[InlineKeyboardButton(button_text, callback_data="confirm")]])
 
-# Ограничение запросов к OpenAI
+# Ограничение параллельных запросов к OpenAI
 semaphore = asyncio.Semaphore(CONFIG["OPENAI_MAX_CONCURRENT"])
 
 async def ask_gpt(prompt: str) -> str:
@@ -265,14 +267,13 @@ async def send_long_message(chat_id: int, message: str, bot, max_attempts=3):
     """Разбиение и отправка длинных сообщений."""
     parts = [message[i:i + CONFIG["MAX_MESSAGE_LENGTH"]] for i in range(0, len(message), CONFIG["MAX_MESSAGE_LENGTH"])]
     logger.info(f"Отправляю {len(parts)} частей пользователю {chat_id}")
-
     for part in parts:
         if not part.strip():
             continue
         for attempt in range(max_attempts):
             try:
                 await bot.send_message(chat_id=chat_id, text=part)
-                await asyncio.sleep(1)
+                await asyncio.sleep(1)  # Задержка между частями
                 break
             except TelegramError as e:
                 logger.error(f"Ошибка отправки (попытка {attempt + 1}): {e}")
@@ -287,6 +288,7 @@ async def delayed_response(chat_id: int, result: str, bot):
     await send_long_message(chat_id, cleaned_result, bot)
     await bot.send_message(chat_id=chat_id, text=clean_text(REVIEW_TEXT))
 
+# Обработчики
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /start."""
     user_id = update.effective_user.id
@@ -297,7 +299,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(clean_text(WELCOME_TEXT), reply_markup=get_main_keyboard())
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка кнопок."""
+    """Обработка нажатий на кнопки."""
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
@@ -325,8 +327,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(data["text"]) < CONFIG["MIN_TEXT_LENGTH_MATRIX"] and data["type"] == "matrix":
             await query.message.reply_text(clean_text("Текст для матрицы слишком короткий. Напишите больше."))
             return
-        if data["type"] == "matrix" and not validate_date(data["text"].split("\n")[0]):
-            await query.message.reply_text(clean_text("Неверный формат даты. Используйте ДД.ММ.ГГГГ."))
+
+        # Проверка даты
+        date_match = re.search(r"\b\d{2}\.\d{2}\.\d{4}\b", data["text"])
+        if not date_match or not validate_date(date_match.group()):
+            await query.message.reply_text(clean_text("Неверный формат даты или дата не существует. Используйте ДД.ММ.ГГГГ."))
             return
 
         await query.message.reply_text(clean_text(RESPONSE_WAIT))
@@ -353,20 +358,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.debug(f"Сообщение от {user_id}: {cleaned_text}")
 
 async def ignore_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка медиа."""
+    """Обработка медиа-сообщений."""
     await update.message.reply_text(clean_text("Пожалуйста, отправляйте только текст."))
 
+# Запуск бота
 if __name__ == "__main__":
     try:
         app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-        # Обработчики
+        # Регистрация обработчиков
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CallbackQueryHandler(handle_callback))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))  # Updated to use 'filters'
-        app.add_handler(MessageHandler(~filters.TEXT & ~filters.COMMAND, ignore_media))  # Updated to use 'filters'
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        app.add_handler(MessageHandler(~filters.TEXT & ~filters.COMMAND, ignore_media))
 
-        # Запуск бота
+        # Старт бота
         logger.info("Бот запускается...")
         app.run_polling()
     except Exception as e:
