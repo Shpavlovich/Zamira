@@ -371,4 +371,4 @@ if __name__ == "__main__":
         app.run_polling()
     except Exception as e:
         logger.error(f"Ошибка запуска: {e}")
-        raise
+        raise 
