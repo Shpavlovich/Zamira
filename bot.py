@@ -15,11 +15,16 @@ from telegram.ext import (
 )
 from telegram.error import TelegramError
 from datetime import datetime
+from logging.handlers import RotatingFileHandler  # Для ротации логов
 
-# Настройка логирования
+# Настройка логирования: запись в файл и консоль
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        RotatingFileHandler("bot.log", maxBytes=5*1024*1024, backupCount=3),  # Ротация логов
+        logging.StreamHandler()  # Вывод в консоль
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -31,6 +36,8 @@ CONFIG = {
     "OPENAI_MAX_CONCURRENT": 5,  # Максимум одновременных запросов к OpenAI
     "MIN_TEXT_LENGTH_TAROT": 100,  # Минимальная длина текста для Таро
     "MIN_TEXT_LENGTH_MATRIX": 15,  # Минимальная длина текста для Матрицы
+    "RETRY_DELAY": 5,            # Задержка перед повторной попыткой (сек)
+    "MAX_RETRIES": 3,            # Максимум попыток для операций
 }
 
 # Настройка API
@@ -39,7 +46,7 @@ BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 # Проверка токенов
 if not BOT_TOKEN or not openai.api_key:
-    logger.error("Токены не установлены в переменных окружения.")
+    logger.critical("Отсутствуют токены TELEGRAM_TOKEN или OPENAI_API_KEY.")
     raise ValueError("Токены TELEGRAM_TOKEN и OPENAI_API_KEY должны быть установлены.")
 
 logger.info("Токены бота и OpenAI проверены.")
@@ -215,7 +222,11 @@ CONTACT_TEXT = """
 # Утилитарные функции
 def clean_text(text: str) -> str:
     """Очистка текста от невидимых символов."""
-    return "".join(c for c in text if c.isprintable() or c in "\n\r\t ")
+    try:
+        return "".join(c for c in text if c.isprintable() or c in "\n\r\t ")
+    except Exception as e:
+        logger.error(f"Ошибка очистки текста: {e}")
+        return text  # Возвращаем исходный текст в случае ошибки
 
 def validate_date(date_text: str) -> bool:
     """Проверка формата даты ДД.ММ.ГГГГ и её реальности."""
@@ -223,11 +234,22 @@ def validate_date(date_text: str) -> bool:
         return False
     try:
         date = datetime.strptime(date_text, "%d.%m.%Y")
-        if date.year < 1900:  # Ограничение на слишком старые даты
+        if date.year < 1900 or date > datetime.now():
             return False
         return True
     except ValueError:
         return False
+
+async def retry_operation(coro, max_retries=CONFIG["MAX_RETRIES"], delay=CONFIG["RETRY_DELAY"]):
+    """Повтор операции при сбоях с экспоненциальной задержкой."""
+    for attempt in range(max_retries):
+        try:
+            return await coro
+        except Exception as e:
+            logger.warning(f"Попытка {attempt + 1} не удалась: {e}")
+            if attempt == max_retries - 1:
+                raise
+            await asyncio.sleep(delay * (2 ** attempt))  # Экспоненциальная задержка
 
 # Клавиатуры
 def get_main_keyboard():
@@ -249,9 +271,9 @@ def get_confirm_keyboard(tarot=False):
 semaphore = asyncio.Semaphore(CONFIG["OPENAI_MAX_CONCURRENT"])
 
 async def ask_gpt(prompt: str) -> str:
-    """Запрос к OpenAI с обработкой ошибок."""
+    """Запрос к OpenAI с обработкой ошибок и повторами."""
     async with semaphore:
-        try:
+        async def gpt_call():
             response = await openai.ChatCompletion.acreate(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
@@ -259,34 +281,41 @@ async def ask_gpt(prompt: str) -> str:
                 max_tokens=CONFIG["OPENAI_MAX_TOKENS"],
             )
             return response.choices[0].message.content.strip()
+        
+        try:
+            return await retry_operation(gpt_call())
         except Exception as e:
-            logger.error(f"Ошибка OpenAI: {e}")
-            return "Произошла ошибка при обработке запроса. Попробуйте позже."
+            logger.error(f"Не удалось выполнить запрос к OpenAI: {e}")
+            return "Ошибка обработки запроса. Попробуйте позже или свяжитесь с @zamira_esoteric."
 
-async def send_long_message(chat_id: int, message: str, bot, max_attempts=3):
-    """Разбиение и отправка длинных сообщений."""
+async def send_long_message(chat_id: int, message: str, bot):
+    """Разбиение и отправка длинных сообщений с повторами."""
     parts = [message[i:i + CONFIG["MAX_MESSAGE_LENGTH"]] for i in range(0, len(message), CONFIG["MAX_MESSAGE_LENGTH"])]
     logger.info(f"Отправляю {len(parts)} частей пользователю {chat_id}")
+    
     for part in parts:
         if not part.strip():
             continue
-        for attempt in range(max_attempts):
-            try:
-                await bot.send_message(chat_id=chat_id, text=part)
-                await asyncio.sleep(1)  # Задержка между частями
-                break
-            except TelegramError as e:
-                logger.error(f"Ошибка отправки (попытка {attempt + 1}): {e}")
-                if attempt == max_attempts - 1:
-                    await bot.send_message(chat_id=chat_id, text="Ошибка отправки ответа. Свяжитесь с @zamira_esoteric.")
-                await asyncio.sleep(2 ** attempt)
+        async def send_part():
+            await bot.send_message(chat_id=chat_id, text=part)
+            await asyncio.sleep(1)  # Задержка между частями
+        
+        try:
+            await retry_operation(send_part())
+        except Exception as e:
+            logger.error(f"Не удалось отправить часть сообщения: {e}")
+            await bot.send_message(chat_id=chat_id, text="Ошибка отправки. Свяжитесь с @zamira_esoteric.")
 
 async def delayed_response(chat_id: int, result: str, bot):
-    """Задержка отправки ответа на 2 часа."""
-    await asyncio.sleep(CONFIG["DELAY_SECONDS"])  # 2 часа
-    cleaned_result = clean_text(result)
-    await send_long_message(chat_id, cleaned_result, bot)
-    await bot.send_message(chat_id=chat_id, text=clean_text(REVIEW_TEXT))
+    """Задержка отправки ответа на 2 часа с обработкой ошибок."""
+    try:
+        await asyncio.sleep(CONFIG["DELAY_SECONDS"])  # 2 часа
+        cleaned_result = clean_text(result)
+        await send_long_message(chat_id, cleaned_result, bot)
+        await bot.send_message(chat_id=chat_id, text=clean_text(REVIEW_TEXT))
+    except Exception as e:
+        logger.error(f"Ошибка в delayed_response: {e}")
+        await bot.send_message(chat_id=chat_id, text="Ошибка обработки. Свяжитесь с @zamira_esoteric.")
 
 # Обработчики
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -297,6 +326,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     user_data[user_id] = {"type": None, "text": ""}
     await update.message.reply_text(clean_text(WELCOME_TEXT), reply_markup=get_main_keyboard())
+    logger.info(f"Пользователь {user_id} начал взаимодействие.")
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка нажатий на кнопки."""
@@ -308,42 +338,45 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(clean_text(PRIVATE_MESSAGE))
         return
 
-    if query.data == "tarot":
-        user_data[user_id] = {"type": "tarot", "text": ""}
-        await query.message.reply_text(clean_text(INSTRUCTION_TAROT), reply_markup=get_confirm_keyboard(tarot=True))
-    elif query.data == "matrix":
-        user_data[user_id] = {"type": "matrix", "text": ""}
-        await query.message.reply_text(clean_text(INSTRUCTION_MATRIX), reply_markup=get_confirm_keyboard())
-    elif query.data == "contact":
-        await query.message.reply_text(clean_text(CONTACT_TEXT))
-    elif query.data == "confirm":
-        data = user_data.get(user_id, {})
-        if not data.get("type") or not data.get("text", "").strip():
-            await query.message.reply_text(clean_text("Вы ещё ничего не написали."))
-            return
-        if len(data["text"]) < CONFIG["MIN_TEXT_LENGTH_TAROT"] and data["type"] == "tarot":
-            await query.message.reply_text(clean_text("Текст для Таро слишком короткий. Напишите больше."))
-            return
-        if len(data["text"]) < CONFIG["MIN_TEXT_LENGTH_MATRIX"] and data["type"] == "matrix":
-            await query.message.reply_text(clean_text("Текст для матрицы слишком короткий. Напишите больше."))
-            return
+    try:
+        if query.data == "tarot":
+            user_data[user_id] = {"type": "tarot", "text": ""}
+            await query.message.reply_text(clean_text(INSTRUCTION_TAROT), reply_markup=get_confirm_keyboard(tarot=True))
+        elif query.data == "matrix":
+            user_data[user_id] = {"type": "matrix", "text": ""}
+            await query.message.reply_text(clean_text(INSTRUCTION_MATRIX), reply_markup=get_confirm_keyboard())
+        elif query.data == "contact":
+            await query.message.reply_text(clean_text(CONTACT_TEXT))
+        elif query.data == "confirm":
+            data = user_data.get(user_id, {})
+            if not data.get("type") or not data.get("text", "").strip():
+                await query.message.reply_text(clean_text("Вы ещё ничего не написали."))
+                return
+            if len(data["text"]) < CONFIG["MIN_TEXT_LENGTH_TAROT"] and data["type"] == "tarot":
+                await query.message.reply_text(clean_text("Текст для Таро слишком короткий. Напишите больше."))
+                return
+            if len(data["text"]) < CONFIG["MIN_TEXT_LENGTH_MATRIX"] and data["type"] == "matrix":
+                await query.message.reply_text(clean_text("Текст для матрицы слишком короткий. Напишите больше."))
+                return
 
-        # Проверка даты
-        date_match = re.search(r"\b\d{2}\.\d{2}\.\d{4}\b", data["text"])
-        if not date_match or not validate_date(date_match.group()):
-            await query.message.reply_text(clean_text("Неверный формат даты или дата не существует. Используйте ДД.ММ.ГГГГ."))
-            return
+            date_match = re.search(r"\b\d{2}\.\d{2}\.\d{4}\b", data["text"])
+            if not date_match or not validate_date(date_match.group()):
+                await query.message.reply_text(clean_text("Неверный формат даты или дата не существует. Используйте ДД.ММ.ГГГГ."))
+                return
 
-        await query.message.reply_text(clean_text(RESPONSE_WAIT))
-        prompt = (
-            PROMPT_TAROT.format(input_text=data["text"])
-            if data["type"] == "tarot"
-            else PROMPT_MATRIX.format(input_text=data["text"])
-        )
-        result = await ask_gpt(prompt)
-        asyncio.create_task(delayed_response(query.message.chat.id, result, context.bot))
-        completed_users.add(user_id)
-        del user_data[user_id]
+            await query.message.reply_text(clean_text(RESPONSE_WAIT))
+            prompt = (
+                PROMPT_TAROT.format(input_text=data["text"]) if data["type"] == "tarot"
+                else PROMPT_MATRIX.format(input_text=data["text"])
+            )
+            result = await ask_gpt(prompt)
+            asyncio.create_task(delayed_response(query.message.chat.id, result, context.bot))
+            completed_users.add(user_id)
+            del user_data[user_id]
+            logger.info(f"Заявка пользователя {user_id} обработана.")
+    except Exception as e:
+        logger.error(f"Ошибка в handle_callback: {e}")
+        await query.message.reply_text("Произошла ошибка. Свяжитесь с @zamira_esoteric.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка текстовых сообщений."""
@@ -363,18 +396,20 @@ async def ignore_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Запуск бота
 if __name__ == "__main__":
-    try:
-        app = ApplicationBuilder().token(BOT_TOKEN).build()
+    async def main():
+        try:
+            app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-        # Регистрация обработчиков
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(CallbackQueryHandler(handle_callback))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        app.add_handler(MessageHandler(~filters.TEXT & ~filters.COMMAND, ignore_media))
+            # Регистрация обработчиков
+            app.add_handler(CommandHandler("start", start))
+            app.add_handler(CallbackQueryHandler(handle_callback))
+            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+            app.add_handler(MessageHandler(~filters.TEXT & ~filters.COMMAND, ignore_media))
 
-        # Старт бота
-        logger.info("Бот запускается...")
-        app.run_polling()
-    except Exception as e:
-        logger.error(f"Ошибка запуска: {e}")
-        raise
+            logger.info("Бот запускается...")
+            await app.run_polling()
+        except Exception as e:
+            logger.critical(f"Критическая ошибка запуска: {e}")
+            raise
+
+    asyncio.run(main())
