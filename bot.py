@@ -206,5 +206,5 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO | filters.DOCUMENT, ignore_media))
+    app.add_handler(MessageHandler(filters.ATTACHMENT, ignore_media))
     app.run_polling()
