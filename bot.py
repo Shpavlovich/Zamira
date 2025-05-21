@@ -1,6 +1,7 @@
 import os
 import logging
 import openai
+import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -14,80 +15,22 @@ from telegram.ext import (
 # Настройки
 openai.api_key = os.getenv("OPENAI_API_KEY")
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
-
 user_data = {}
 
+# Очистка текста от невалидных символов
+def clean_text(text):
+    return re.sub(r'[^\x20-\x7Eа-яА-ЯёЁ0-9—\n\r\t.,:;!?()"\[\]{}\-+=@#$%^&*/\\\'<>=|а-яА-ЯёЁ ]', '', text)
+
 # Промт для Таро
-PROMPT_TAROT = """
-Ты — Мира, 42 года. Женщина с эзотерическим даром, профессиональный таролог и ясновидящая с более чем 20-летним опытом. Ты делаешь расклады по имени, дате рождения и конкретным вопросам клиента. Все расклады делаешь вручную, с глубокой проработкой.
+PROMPT_TAROT = """Ты — Мира, 42 года. Женщина с эзотерическим даром... (оставьте весь промт как вы присылали, без изменений)"""
 
-Ты не пишешь как нейросеть. Текст — живой, реалистичный, внятный, словно ты лично пишете клиенту. Без клише, без шаблонов, без фраз, которые выдают ИИ.
-
-ФОРМАТ РАСКЛАДА:
-1. Название расклада
-2. Позиции (например: 1, 2, 3…)
-3. Финальный блок: Совет от карт Таро
-
-Каждая позиция:
-— Отдельная карта
-— Объём: минимум 800 символов
-— Подробный анализ карты именно в контексте ситуации клиента
-— Карты выбираются случайно, а не по смыслу
-— Повторы и выдуманные карты запрещены
-— Информация должна быть конкретной, без размытой воды
-
-Если в раскладе подразумевается прогноз, обязательно указывай примерное время события — только начиная с июля 2025 года. Даты до июля 2025 года запрещено упоминать.
-
-Общий объём — минимум 4000 символов
-
-СТРОГОЕ ТРЕБОВАНИЕ:
-— Обращение к клиенту только через «вы», «ваш», «ваша»
-— Никаких приветствий и вступлений
-— Расклад начинается с названия
-— В конце запрещено писать «обратитесь снова» и т.п.
-— Последний блок — только «Совет от карт Таро»
-
-ДАННЫЕ КЛИЕНТА:
-{input_text}
-"""
-
-# Промт для матрицы судьбы
-PROMPT_MATRIX = """
-Ты — Мира, 42 года. Эзотерик, ясновидящая, мастер матрицы судьбы. Пишешь как человек с 20-летним опытом, уверенно и глубоко. Работаешь по дате рождения.
-
-СТРУКТУРА:
-1. Разбор матрицы судьбы
-2. Дата рождения клиента
-3. 10 разделов:
-— Личность и внутренний стержень
-— Карма рода и задачи души
-— Предназначение
-— Отношения и привязанности
-— Финансы и профессиональная реализация
-— Страхи, блоки, уязвимости
-— Ваши сильные стороны
-— Точка роста: где заложен ключ к прорыву
-— Предупреждения и временные циклы (2025–2027)
-— Финальный вывод
-
-Каждый блок: минимум 900 символов. Информация должна быть чёткой, без воды и обобщений. Общий объём — не менее 6000 символов.
-
-ОГРАНИЧЕНИЯ:
-— Никаких вступлений и завершений
-— Обращение к клиенту строго через «вы», «ваш», «ваша»
-— Только уникальный текст без шаблонов
-— Упоминание фото или визуальных считываний запрещено
-
-ДАННЫЕ КЛИЕНТА:
-{input_text}
-"""
+# Промт для Матрицы судьбы
+PROMPT_MATRIX = """Ты — Мира, 42 года. Эзотерик, ясновидящая... (тоже оставьте полностью как вы указали)"""
 
 WELCOME_TEXT = """Здравствуйте!
-
 Первый расклад на Таро или разбор по матрице судьбы — бесплатно. Единственная просьба с моей стороны — оставить потом отзыв на Авито
 
 Как оставить заявку? Всё просто:
-
 1. Нажмите /start, если ещё не нажимали.
 2. Выберите, что вам нужно — расклад на Таро или матрица судьбы.
 3. Бот подскажет, какие данные нужно прислать. Просто отвечайте по списку — ничего лишнего придумывать не нужно.
@@ -97,11 +40,9 @@ WELCOME_TEXT = """Здравствуйте!
 
 Этот бот — просто помощник, чтобы собрать заявки.
 Я — настоящая, всё делаю сама и очень стараюсь для каждого.
-
 Спасибо, что выбрали меня.
 С уважением,
-Замира
-"""
+Замира"""
 
 INSTRUCTION_TAROT = """Чтобы я сделала расклад, пришлите, пожалуйста, следующие данные:
 
@@ -110,22 +51,20 @@ INSTRUCTION_TAROT = """Чтобы я сделала расклад, пришли
 — Краткую предысторию: что происходит сейчас и почему вы обратились.
 — Чёткий вопрос к картам.
 
-Когда всё напишете — нажмите кнопку "Подтвердить".
+Когда всё напишете — нажмите кнопку «Подтвердить».
 
 Нажимайте на кнопку только после того, как отправите всю нужную информацию.
-Можно писать как в одном сообщении, так и по частям.
-"""
+Можно писать как в одном сообщении, так и по частям."""
 
 INSTRUCTION_MATRIX = """Чтобы я сделала разбор по матрице судьбы, пришлите, пожалуйста:
 
 — Дату рождения (ДД.ММ.ГГГГ)
 — Имя (можно без фамилии)
 
-Когда всё напишете — нажмите кнопку "Подтвердить".
+Когда всё напишете — нажмите кнопку «Подтвердить».
 
 Нажимайте на кнопку только после того, как отправите всю нужную информацию.
-Можно писать как в одном сообщении, так и по частям.
-"""
+Можно писать как в одном сообщении, так и по частям."""
 
 RESPONSE_WAIT = """Спасибо, я всё получила!
 Ваша заявка ушла ко мне — как только подойду к ней, сразу начну работу.
@@ -161,7 +100,7 @@ async def ask_gpt(prompt: str) -> str:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data[update.effective_user.id] = {"type": None, "text": ""}
-    await update.message.reply_text(WELCOME_TEXT, reply_markup=get_main_keyboard())
+    await update.message.reply_text(clean_text(WELCOME_TEXT), reply_markup=get_main_keyboard())
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -170,21 +109,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "tarot":
         user_data[user_id] = {"type": "tarot", "text": ""}
-        await query.message.reply_text(INSTRUCTION_TAROT, reply_markup=get_confirm_keyboard())
+        await query.message.reply_text(clean_text(INSTRUCTION_TAROT), reply_markup=get_confirm_keyboard())
     elif query.data == "matrix":
         user_data[user_id] = {"type": "matrix", "text": ""}
-        await query.message.reply_text(INSTRUCTION_MATRIX, reply_markup=get_confirm_keyboard())
+        await query.message.reply_text(clean_text(INSTRUCTION_MATRIX), reply_markup=get_confirm_keyboard())
     elif query.data == "confirm":
         data = user_data.get(user_id)
         if not data or not data["text"].strip():
-            await query.message.reply_text("Вы ещё ничего не написали.")
+            await query.message.reply_text(clean_text("Вы ещё ничего не написали."))
             return
-        await query.message.reply_text(RESPONSE_WAIT)
-        clean_text = data["text"].encode("ascii", "ignore").decode("ascii")
-        prompt = PROMPT_TAROT.format(input_text=clean_text) if data["type"] == "tarot" else PROMPT_MATRIX.format(input_text=clean_text)
+        await query.message.reply_text(clean_text(RESPONSE_WAIT))
+        prompt = PROMPT_TAROT.format(input_text=data["text"]) if data["type"] == "tarot" else PROMPT_MATRIX.format(input_text=data["text"])
         result = await ask_gpt(prompt)
-        await query.message.reply_text(result)
-        await query.message.reply_text(REVIEW_TEXT)
+        await query.message.reply_text(clean_text(result))
+        await query.message.reply_text(clean_text(REVIEW_TEXT))
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text:
@@ -193,7 +131,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_data[user_id]["text"] += "\n" + update.message.text.strip()
 
 async def ignore_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Пожалуйста, не отправляйте фото или вложения. Только текст.")
+    await update.message.reply_text(clean_text("Пожалуйста, не отправляйте фото или вложения. Только текст."))
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
@@ -201,5 +139,5 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(MessageHandler(filters.ATTACHMENT, ignore_media))
+    app.add_handler(MessageHandler(filters.ATTACHMENT | filters.PHOTO | filters.VIDEO | filters.DOCUMENT, ignore_media))
     app.run_polling()
