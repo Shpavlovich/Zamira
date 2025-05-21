@@ -1,5 +1,6 @@
 import os
 import logging
+import re
 import openai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -14,6 +15,10 @@ from telegram.ext import (
 # Настройки
 openai.api_key = os.getenv("OPENAI_API_KEY")
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
+
+# Проверка валидности BOT_TOKEN
+if not re.match(r'^\d{8,10}:[A-Za-z0-9_-]{35}$', BOT_TOKEN):
+    raise ValueError("Invalid bot token. Please check the TELEGRAM_TOKEN environment variable.")
 
 user_data = {}
 
