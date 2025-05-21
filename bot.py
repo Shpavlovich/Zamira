@@ -149,6 +149,7 @@ REVIEW_TEXT = """Если вас устроил расклад или разбо
 https://www.avito.ru/user/review?fid=789cea56af11effc6e9f19af5f593089bf64db8b17076a2a52c46ade18aa8a1f289917d3fd523c2ab3e7fd892fd3dcac2ad2955d00010000ffff23501692
 """
 
+
 def get_main_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🃏 Расклад Таро", callback_data="tarot")],
