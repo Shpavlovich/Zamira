@@ -225,7 +225,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if user_id in user_data:
             cleaned_text = clean_text(update.message.text)
-           user_data[user_id]["text"] += "\n" + cleaned_text
+            user_data[user_id]["text"] += "\n" + cleaned_text
             logger.debug(f"Сообщение от {user_id}: {cleaned_text}")
 
 async def ignore_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
