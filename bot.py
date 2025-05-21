@@ -16,13 +16,22 @@ from telegram.ext import (
 openai.api_key = os.getenv("OPENAI_API_KEY")
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-# Проверка валидности BOT_TOKEN
+# Проверка и очистка токена
+if not BOT_TOKEN:
+    raise ValueError("TELEGRAM_TOKEN environment variable is not set.")
+
+# Удаляем любые невидимые символы (оставляем только printable ASCII)
+BOT_TOKEN = ''.join(c for c in BOT_TOKEN if 32 <= ord(c) <= 126)
+
+# Проверяем формат токена
 if not re.match(r'^\d{8,10}:[A-Za-z0-9_-]{35}$', BOT_TOKEN):
-    raise ValueError("Invalid bot token. Please check the TELEGRAM_TOKEN environment variable.")
+    raise ValueError(f"Invalid bot token: '{BOT_TOKEN}'. It should match the pattern 'digits:alphanum'.")
+
+print(f"Using bot token: {BOT_TOKEN[:10]}... (truncated for security)")
 
 user_data = {}
 
-# Промт для Таро
+# Промты (без изменений)
 PROMPT_TAROT = """
 Ты — Мира, 42 года. Женщина с эзотерическим даром, профессиональный таролог и ясновидящая с более чем 20-летним опытом. Ты делаешь расклады по имени, дате рождения и конкретным вопросам клиента. Все расклады делаешь вручную, с глубокой проработкой.
 
@@ -56,7 +65,6 @@ PROMPT_TAROT = """
 {input_text}
 """
 
-# Промт для матрицы судьбы
 PROMPT_MATRIX = """
 Ты — Мира, 42 года. Эзотерик, ясновидящая, мастер матрицы судьбы. Пишешь как человек с 20-летним опытом, уверенно и глубоко. Работаешь по дате рождения.
 
@@ -87,6 +95,7 @@ PROMPT_MATRIX = """
 {input_text}
 """
 
+# Тексты ответов (без изменений)
 WELCOME_TEXT = """Здравствуйте!
 
 Первый расклад на Таро или разбор по матрице судьбы — бесплатно. Единственная просьба с моей стороны — оставить потом отзыв на Авито
@@ -146,6 +155,10 @@ REVIEW_TEXT = """Если вас устроил расклад или разбо
 Без этого прогноз может не сбыться или пойти совсем иначе.
 """
 
+# Функция для очистки текста
+def clean_text(text: str) -> str:
+    return ''.join(c for c in text if 32 <= ord(c) <= 126 or c in '\n\r\t')
+
 def get_main_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("Расклад Таро", callback_data="tarot")],
@@ -168,7 +181,7 @@ async def ask_gpt(prompt: str) -> str:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data[update.effective_user.id] = {"type": None, "text": ""}
-    await update.message.reply_text(WELCOME_TEXT, reply_markup=get_main_keyboard())
+    await update.message.reply_text(clean_text(WELCOME_TEXT), reply_markup=get_main_keyboard())
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -177,32 +190,36 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "tarot":
         user_data[user_id] = {"type": "tarot", "text": ""}
-        await query.message.reply_text(INSTRUCTION_TAROT, reply_markup=get_confirm_keyboard())
+        await query.message.reply_text(clean_text(INSTRUCTION_TAROT), reply_markup=get_confirm_keyboard())
     elif query.data == "matrix":
         user_data[user_id] = {"type": "matrix", "text": ""}
-        await query.message.reply_text(INSTRUCTION_MATRIX, reply_markup=get_confirm_keyboard())
+        await query.message.reply_text(clean_text(INSTRUCTION_MATRIX), reply_markup=get_confirm_keyboard())
     elif query.data == "confirm":
         data = user_data.get(user_id)
         if not data or not data["text"].strip():
-            await query.message.reply_text("Вы ещё ничего не написали.")
+            await query.message.reply_text(clean_text("Вы ещё ничего не написали."))
             return
-        await query.message.reply_text(RESPONSE_WAIT)
+        await query.message.reply_text(clean_text(RESPONSE_WAIT))
         prompt = PROMPT_TAROT.format(input_text=data["text"]) if data["type"] == "tarot" else PROMPT_MATRIX.format(input_text=data["text"])
         result = await ask_gpt(prompt)
-        await query.message.reply_text(result)
-        await query.message.reply_text(REVIEW_TEXT)
+        await query.message.reply_text(clean_text(result))
+        await query.message.reply_text(clean_text(REVIEW_TEXT))
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message and update.message.text:
         user_id = update.message.from_user.id
         if user_id in user_data:
-            user_data[user_id]["text"] += "\n" + update.message.text.strip()
+            cleaned_text = clean_text(update.message.text)
+            user_data[user_id]["text"] += "\n" + cleaned_text
 
 async def ignore_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Пожалуйста, не отправляйте фото или вложения. Только текст.")
+    await update.message.reply_text(clean_text("Пожалуйста, не отправляйте фото или вложения. Только текст."))
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    # Включаем debug-логи
+    logging.basicConfig(level=logging.DEBUG)
+    logging.getLogger("telegram").setLevel(logging.DEBUG)
+    
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callback))
