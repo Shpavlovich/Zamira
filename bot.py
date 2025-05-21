@@ -363,8 +363,8 @@ if __name__ == "__main__":
         # Обработчики
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CallbackQueryHandler(handle_callback))
-        app.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
-        app.add_handler(MessageHandler(~Filters.text & ~Filters.command, ignore_media))
+        app.add_handler(MessageHandler(filters.text & ~filters.command, handle_message))
+        app.add_handler(MessageHandler(~filters.text & ~filters.command, ignore_media))
 
         # Запуск бота
         logger.info("Бот запускается...")
