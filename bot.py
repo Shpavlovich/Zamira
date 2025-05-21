@@ -1,3 +1,4 @@
+```python
 import os
 import logging
 import openai
@@ -17,7 +18,7 @@ BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 user_data = {}
 
-# Промт для Таро
+# Промт для Таро (полностью сохранён ваш оригинал)
 PROMPT_TAROT = """
 Ты — Мира, 42 года. Женщина с эзотерическим даром, профессиональный таролог и ясновидящая с более чем 20-летним опытом. Ты делаешь расклады по имени, дате рождения и конкретным вопросам клиента. Все расклады делаешь вручную, с глубокой проработкой.
 
@@ -51,7 +52,7 @@ PROMPT_TAROT = """
 {input_text}
 """
 
-# Промт для матрицы судьбы
+# Промт для матрицы судьбы (полностью сохранён ваш оригинал)
 PROMPT_MATRIX = """
 Ты — Мира, 42 года. Эзотерик, ясновидящая, мастер матрицы судьбы. Пишешь как человек с 20-летним опытом, уверенно и глубоко. Работаешь по дате рождения.
 
@@ -157,16 +158,24 @@ def get_confirm_keyboard():
     ])
 
 async def ask_gpt(prompt: str) -> str:
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.85,
-        max_tokens=3500
-    )
-    return response.choices[0].message.content.strip()
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.85,
+            max_tokens=3500
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logging.error(f"Ошибка OpenAI: {str(e)}")
+        return "Извините, произошла ошибка при обработке запроса."
+
+async def split_message(text: str, max_length: int = 4096) -> list:
+    return [text[i:i+max_length] for i in range(0, len(text), max_length)]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_data[update.effective_user.id] = {"type": None, "text": ""}
+    user_id = update.effective_user.id
+    user_data[user_id] = {"type": None, "text": ""}
     await update.message.reply_text(WELCOME_TEXT, reply_markup=get_main_keyboard())
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -174,37 +183,72 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     await query.answer()
 
-    if query.data == "tarot":
-        user_data[user_id] = {"type": "tarot", "text": ""}
-        await query.message.reply_text(INSTRUCTION_TAROT, reply_markup=get_confirm_keyboard())
-    elif query.data == "matrix":
-        user_data[user_id] = {"type": "matrix", "text": ""}
-        await query.message.reply_text(INSTRUCTION_MATRIX, reply_markup=get_confirm_keyboard())
+    if query.data in ("tarot", "matrix"):
+        user_data[user_id] = {
+            "type": query.data,
+            "text": ""
+        }
+        instruction = INSTRUCTION_TAROT if query.data == "tarot" else INSTRUCTION_MATRIX
+        await query.edit_message_text(instruction, reply_markup=get_confirm_keyboard())
+        
     elif query.data == "confirm":
+        if user_id not in user_data:
+            await query.message.reply_text("Сначала выберите тип запроса через /start")
+            return
+            
         data = user_data.get(user_id)
         if not data or not data["text"].strip():
             await query.message.reply_text("Вы ещё ничего не написали.")
             return
+
         await query.message.reply_text(RESPONSE_WAIT)
-        prompt = PROMPT_TAROT.format(input_text=data["text"]) if data["type"] == "tarot" else PROMPT_MATRIX.format(input_text=data["text"])
-        result = await ask_gpt(prompt)
-        await query.message.reply_text(result)
-        await query.message.reply_text(REVIEW_TEXT)
+        
+        try:
+            prompt_template = PROMPT_TAROT if data["type"] == "tarot" else PROMPT_MATRIX
+            prompt = prompt_template.format(input_text=data["text"])
+            result = await ask_gpt(prompt)
+            
+            if not result:
+                raise ValueError("Пустой ответ от API")
+
+            messages = await split_message(result)
+            for msg in messages:
+                await query.message.reply_text(msg)
+                
+            await query.message.reply_text(REVIEW_TEXT)
+            
+        except Exception as e:
+            logging.error(f"Ошибка: {str(e)}")
+            await query.message.reply_text("Произошла ошибка при обработке вашего запроса. Попробуйте позже.")
+            
+        finally:
+            if user_id in user_data:
+                del user_data[user_id]
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text:
-        user_id = update.message.from_user.id
-        if user_id in user_data:
-            user_data[user_id]["text"] += "\n" + update.message.text.strip()
+    user_id = update.effective_user.id
+    if user_id not in user_data:
+        return
+        
+    text = update.message.text.strip()
+    if text:
+        user_data[user_id]["text"] += "\n" + text
 
 async def ignore_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Пожалуйста, не отправляйте фото или вложения. Только текст.")
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO
+    )
+    
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+    
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(~filters.TEXT & ~filters.COMMAND, ignore_media))
+    
     app.run_polling()
+```
