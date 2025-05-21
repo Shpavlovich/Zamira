@@ -149,7 +149,6 @@ REVIEW_TEXT = """Если вас устроил расклад или разбо
 https://www.avito.ru/user/review?fid=789cea56af11effc6e9f19af5f593089bf64db8b17076a2a52c46ade18aa8a1f289917d3fd523c2ab3e7fd892fd3dcac2ad2955d00010000ffff23501692
 """
 
-
 def get_main_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🃏 Расклад Таро", callback_data="tarot")],
@@ -205,12 +204,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ignore_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Пожалуйста, не отправляйте фото или вложения. Только текст.")
 
-# Запуск
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(MessageHandler(~filters.TEXT & ~filters.COMMAND, ignore_media))
+    app.add_handler(MessageHandler(filters.ATTACHMENT, ignore_media))
     app.run_polling()
