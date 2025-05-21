@@ -84,7 +84,7 @@ PROMPT_MATRIX = """
 
 WELCOME_TEXT = """Здравствуйте!
 
-Первый расклад на Таро или разбор по матрице судьбы — бесплатно. Единственная просьба с моей стороны — оставить потом отзыв ✨
+Первый расклад на Таро или разбор по матрице судьбы — бесплатно. Единственная просьба с моей стороны — оставить потом отзыв на Авито ✨
 
 ⸻
 
@@ -142,7 +142,8 @@ RESPONSE_WAIT = """Спасибо, я всё получила!
 Благодарю вас за терпение и доверие!"""
 
 REVIEW_TEXT = """Если вас устроил расклад или разбор по матрице,
-пожалуйста, оставьте отзыв. Это важно для энергообмена."""
+для энергообмена обязательно оставьте отзыв на Авито.
+Без этого прогноз может не сбыться или пойти совсем иначе."""
 
 def get_main_keyboard():
     return InlineKeyboardMarkup([
@@ -194,7 +195,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text:
         user_id = update.message.from_user.id
         if user_id in user_data:
-            user_data[user_id]["text"] += "\n" + update.message.text.strip()
+            user_data[user_id]["text"] += "
+" + update.message.text.strip()
 
 async def ignore_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Пожалуйста, не отправляйте фото или вложения. Только текст.")
@@ -205,5 +207,5 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(MessageHandler(filters.ATTACHMENT, ignore_media))
+    app.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO | filters.DOCUMENT, ignore_media))
     app.run_polling()
