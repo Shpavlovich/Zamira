@@ -145,7 +145,6 @@ REVIEW_TEXT = """Если вас устроил расклад или разбо
 для энергообмена обязательно оставьте отзыв на Авито.
 Без этого прогноз может не сбыться или пойти совсем иначе."""
 
-
 def get_main_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🃏 Расклад Таро", callback_data="tarot")],
@@ -207,5 +206,5 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(MessageHandler(filters.ATTACHMENT, ignore_media))
+    app.add_handler(MessageHandler(~filters.TEXT & ~filters.COMMAND, ignore_media))
     app.run_polling()
