@@ -196,7 +196,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.message.from_user.id
         if user_id in user_data:
             user_data[user_id]["text"] += "\n" + update.message.text.strip()
-" + update.message.text.strip()
 
 async def ignore_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Пожалуйста, не отправляйте фото или вложения. Только текст.")
