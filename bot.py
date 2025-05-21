@@ -202,7 +202,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_id in user_data:
             user_data[user_id]["text"] += "\n" + update.message.text.strip()
 
-# Игнорируем фото и вложения
+# Игнорируем медиа
 async def ignore_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Пожалуйста, не отправляйте фото или вложения. Только текст.")
 
@@ -213,5 +213,8 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO | filters.Document.ALL | filters.Sticker.ALL | filters.Audio.ALL, ignore_media))
+    app.add_handler(MessageHandler(
+        filters.PHOTO | filters.VIDEO | filters.Document.ALL | filters.Sticker.ALL | filters.Audio.ALL,
+        ignore_media
+    ))
     app.run_polling()
