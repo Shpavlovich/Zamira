@@ -15,15 +15,15 @@ from telegram.ext import (
 )
 from telegram.error import TelegramError
 from datetime import datetime
-from logging.handlers import RotatingFileHandler  # Для ротации логов
+from logging.handlers import RotatingFileHandler
 
 # Настройка логирования: запись в файл и консоль
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        RotatingFileHandler("bot.log", maxBytes=5*1024*1024, backupCount=3),  # Ротация логов
-        logging.StreamHandler()  # Вывод в консоль
+        RotatingFileHandler("bot.log", maxBytes=5*1024*1024, backupCount=3),
+        logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
@@ -226,7 +226,7 @@ def clean_text(text: str) -> str:
         return "".join(c for c in text if c.isprintable() or c in "\n\r\t ")
     except Exception as e:
         logger.error(f"Ошибка очистки текста: {e}")
-        return text  # Возвращаем исходный текст в случае ошибки
+        return text
 
 def validate_date(date_text: str) -> bool:
     """Проверка формата даты ДД.ММ.ГГГГ и её реальности."""
@@ -249,7 +249,7 @@ async def retry_operation(coro, max_retries=CONFIG["MAX_RETRIES"], delay=CONFIG[
             logger.warning(f"Попытка {attempt + 1} не удалась: {e}")
             if attempt == max_retries - 1:
                 raise
-            await asyncio.sleep(delay * (2 ** attempt))  # Экспоненциальная задержка
+            await asyncio.sleep(delay * (2 ** attempt))
 
 # Клавиатуры
 def get_main_keyboard():
@@ -298,7 +298,7 @@ async def send_long_message(chat_id: int, message: str, bot):
             continue
         async def send_part():
             await bot.send_message(chat_id=chat_id, text=part)
-            await asyncio.sleep(1)  # Задержка между частями
+            await asyncio.sleep(1)
         
         try:
             await retry_operation(send_part())
@@ -306,15 +306,15 @@ async def send_long_message(chat_id: int, message: str, bot):
             logger.error(f"Не удалось отправить часть сообщения: {e}")
             await bot.send_message(chat_id=chat_id, text="Ошибка отправки. Свяжитесь с @zamira_esoteric.")
 
-async def delayed_response(chat_id: int, result: str, bot):
-    """Задержка отправки ответа на 2 часа с обработкой ошибок."""
+async def delayed_response_job(context: ContextTypes.DEFAULT_TYPE):
+    """Задача для отложенной отправки ответа."""
+    chat_id, result, bot = context.job.data
     try:
-        await asyncio.sleep(CONFIG["DELAY_SECONDS"])  # 2 часа
         cleaned_result = clean_text(result)
         await send_long_message(chat_id, cleaned_result, bot)
         await bot.send_message(chat_id=chat_id, text=clean_text(REVIEW_TEXT))
     except Exception as e:
-        logger.error(f"Ошибка в delayed_response: {e}")
+        logger.error(f"Ошибка в delayed_response_job: {e}")
         await bot.send_message(chat_id=chat_id, text="Ошибка обработки. Свяжитесь с @zamira_esoteric.")
 
 # Обработчики
@@ -370,7 +370,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else PROMPT_MATRIX.format(input_text=data["text"])
             )
             result = await ask_gpt(prompt)
-            asyncio.create_task(delayed_response(query.message.chat.id, result, context.bot))
+            context.job_queue.run_once(delayed_response_job, CONFIG["DELAY_SECONDS"], data=(query.message.chat.id, result, context.bot))
             completed_users.add(user_id)
             del user_data[user_id]
             logger.info(f"Заявка пользователя {user_id} обработана.")
@@ -396,20 +396,17 @@ async def ignore_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Запуск бота
 if __name__ == "__main__":
-    async def main():
-        try:
-            app = ApplicationBuilder().token(BOT_TOKEN).build()
+    try:
+        app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-            # Регистрация обработчиков
-            app.add_handler(CommandHandler("start", start))
-            app.add_handler(CallbackQueryHandler(handle_callback))
-            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-            app.add_handler(MessageHandler(~filters.TEXT & ~filters.COMMAND, ignore_media))
+        # Регистрация обработчиков
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CallbackQueryHandler(handle_callback))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        app.add_handler(MessageHandler(~filters.TEXT & ~filters.COMMAND, ignore_media))
 
-            logger.info("Бот запускается...")
-            await app.run_polling()
-        except Exception as e:
-            logger.critical(f"Критическая ошибка запуска: {e}")
-            raise
-
-    asyncio.run(main())
+        logger.info("Бот запускается...")
+        app.run_polling()
+    except Exception as e:
+        logger.critical(f"Критическая ошибка запуска: {e}")
+        raise
