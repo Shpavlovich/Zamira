@@ -200,8 +200,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text:
         user_id = update.message.from_user.id
         if user_id in user_data:
-            user_data[user_id]["text"] += "
-" + update.message.text.strip()
+            user_data[user_id]["text"] += "\n" + update.message.text.strip()
 
 # Игнорируем фото и другие типы сообщений
 async def ignore_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
