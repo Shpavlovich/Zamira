@@ -11,7 +11,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     MessageHandler,
     ContextTypes,
-    Filters,
+    filters,  # Updated to lowercase 'filters'
 )
 from telegram.error import TelegramError
 
@@ -363,12 +363,12 @@ if __name__ == "__main__":
         # Обработчики
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CallbackQueryHandler(handle_callback))
-        app.add_handler(MessageHandler(filters.text & ~filters.command, handle_message))
-        app.add_handler(MessageHandler(~filters.text & ~filters.command, ignore_media))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))  # Updated to use 'filters'
+        app.add_handler(MessageHandler(~filters.TEXT & ~filters.COMMAND, ignore_media))  # Updated to use 'filters'
 
         # Запуск бота
         logger.info("Бот запускается...")
         app.run_polling()
     except Exception as e:
         logger.error(f"Ошибка запуска: {e}")
-        raise 
+        raise
