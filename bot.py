@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # Конфигурация
 CONFIG = {
-    "DELAY_SECONDS": 7200,  # 2 часа задержки для ответа
+    "DELAY_SECONDS": 10,  # 10 секунд задержки для ответа
     "MAX_MESSAGE_LENGTH": 3900,
     "OPENAI_MAX_TOKENS_TAROT": 5000,  # Для Таро — минимум 4000 символов
     "OPENAI_MAX_TOKENS_MATRIX": 7000,  # Для матрицы — минимум 6000 символов
@@ -210,6 +210,8 @@ RESPONSE_WAIT = """
 
 REVIEW_TEXT = """
 Если вас устроил расклад или разбор по матрице, для энергообмена обязательно оставьте отзыв на Авито. Без этого прогноз может не сбыться или пойти совсем иначе.
+
+[Оставить отзыв](https://www.avito.ru/user/review?fid=2_iyd8F4n3P2lfL3lwkg90tujowHx4ZBZ87DElF8B0nlyL6RdaaYzvyPSWRjp4ZyNE)
 """
 
 PRIVATE_MESSAGE = """
