@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
 CONFIG = {
     "DELAY_SECONDS": 7200,  # 2 часа задержки для ответа
     "MAX_MESSAGE_LENGTH": 3900,
-    "OPENAI_MAX_TOKENS": 6000,
+    "OPENAI_MAX_TOKENS_TAROT": 5000,  # Для Таро — минимум 4000 символов
+    "OPENAI_MAX_TOKENS_MATRIX": 7000,  # Для матрицы — минимум 6000 символов
     "OPENAI_MAX_CONCURRENT": 5,
     "MIN_TEXT_LENGTH_TAROT": 100,
     "MIN_TEXT_LENGTH_MATRIX": 15,
@@ -251,16 +252,16 @@ async def retry_operation(coro, max_retries=CONFIG["MAX_RETRIES"], delay=CONFIG[
 # Ограничение параллельных запросов к OpenAI
 semaphore = asyncio.Semaphore(CONFIG["OPENAI_MAX_CONCURRENT"])
 
-async def ask_gpt(prompt: str) -> str:
-    """Запрос к OpenAI с обработкой ошибок."""
+async def ask_gpt(prompt: str, max_tokens: int) -> str:
+    """Запрос к OpenAI с обработкой ошибок и динамическим max_tokens."""
     async with semaphore:
         async def gpt_call():
             client = openai.AsyncOpenAI(api_key=openai.api_key)
             response = await client.chat.completions.create(
-                model="gpt-3.5-turbo",  # Замени на "gpt-4o", если есть доступ
+                model="gpt-4o",  # Используем gpt-4o
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.85,
-                max_tokens=CONFIG["OPENAI_MAX_TOKENS"],
+                max_tokens=max_tokens,
             )
             return response.choices[0].message.content.strip()
         
@@ -349,7 +350,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 PROMPT_TAROT.format(input_text=data["text"]) if data["type"] == "tarot"
                 else PROMPT_MATRIX.format(input_text=data["text"])
             )
-            result = await ask_gpt(prompt)
+            max_tokens = (
+                CONFIG["OPENAI_MAX_TOKENS_TAROT"] if data["type"] == "tarot"
+                else CONFIG["OPENAI_MAX_TOKENS_MATRIX"]
+            )
+            result = await ask_gpt(prompt, max_tokens)
             if not context.job_queue:
                 logger.error("JobQueue не инициализирован!")
                 await query.message.reply_text("Ошибка бота. Свяжитесь с @zamira_esoteric.")
