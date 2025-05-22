@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # Конфигурация
 CONFIG = {
-    "DELAY_SECONDS": 7200,  # 2 часа (для теста можно поставить 10 секунд)
+    "DELAY_SECONDS": 7200,  # 2 часа задержки для ответа
     "MAX_MESSAGE_LENGTH": 3900,
     "OPENAI_MAX_TOKENS": 6000,
     "OPENAI_MAX_CONCURRENT": 5,
@@ -255,7 +255,8 @@ async def ask_gpt(prompt: str) -> str:
     """Запрос к OpenAI с обработкой ошибок."""
     async with semaphore:
         async def gpt_call():
-            response = await openai.chat.completions.create(
+            client = openai.AsyncOpenAI(api_key=openai.api_key)
+            response = await client.chat.completions.create(
                 model="gpt-3.5-turbo",  # Замени на "gpt-4o", если есть доступ
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.85,
