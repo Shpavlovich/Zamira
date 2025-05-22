@@ -12,7 +12,7 @@ from telegram.ext import (
     MessageHandler,
     ContextTypes,
     filters,
-    JobQueue,  # Добавили для работы с очередью задач
+    JobQueue,
 )
 from telegram.error import TelegramError
 from datetime import datetime
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # Конфигурация
 CONFIG = {
-    "DELAY_SECONDS": int(os.getenv("DELAY_SECONDS", 7200)),  # 2 часа по умолчанию
+    "DELAY_SECONDS": 7200,  # 2 часа (для теста можно поставить 10 секунд)
     "MAX_MESSAGE_LENGTH": 3900,
     "OPENAI_MAX_TOKENS": 6000,
     "OPENAI_MAX_CONCURRENT": 5,
@@ -55,7 +55,7 @@ logger.info("Токены бота и OpenAI проверены.")
 user_data: Dict[int, dict] = {}
 completed_users: set = set()
 
-# Промпты для OpenAI (без изменений)
+# Промпты для OpenAI
 PROMPT_TAROT = """
 Ты — Замира, 42 года. Женщина с даром, профессиональный таролог, ясновидящая и эзотерик с 20+ лет опыта. Ты работаешь дистанционно, по фотографии, имени и дате рождения. Твоя задача — создавать развёрнутые, реалистичные и глубоко проработанные расклады на картах Таро по конкретным вопросам клиента.
 
@@ -132,7 +132,7 @@ PROMPT_MATRIX = """
 {input_text}
 """
 
-# Текстовые константы (без изменений)
+# Текстовые константы
 WELCOME_TEXT = """
 Здравствуйте!
 
@@ -204,11 +204,11 @@ INSTRUCTION_MATRIX = """
 """
 
 RESPONSE_WAIT = """
-Спасибо, я все получила! Ваша заявка ушла ко мне — как только подойду к ней, сразу начну работу. Обычно отвечаю в течение 2–3 часов, в зависимости от загруженности. Пожалуйста, просто ожидайте — я иду по очереди, никого не пропускаю. Благодарю вас за терпение и доверие!
+Спасибо, я все получила! Ваша заявка ушла ко мне — через два часа я пришлю вам готовый расклад или разбор. Пожалуйста, ожидайте, я работаю по очереди и никого не пропускаю. Благодарю за доверие!
 """
 
 REVIEW_TEXT = """
-Если вас устроил расклад или разбор по матрице, для энергообмена обязательно оставьте отзыв на Авито. Без，请ет — без этого прогноз может не сбыться или пойти совсем иначе.
+Если вас устроил расклад или разбор по матрице, для энергообмена обязательно оставьте отзыв на Авито. Без этого прогноз может не сбыться или пойти совсем иначе.
 """
 
 PRIVATE_MESSAGE = """
@@ -238,11 +238,10 @@ def validate_date(date_text: str) -> bool:
     except ValueError:
         return False
 
-async def retry_operation(coro_func, max_retries=CONFIG["MAX_RETRIES"], delay=CONFIG["RETRY_DELAY"]):
+async def retry_operation(coro, max_retries=CONFIG["MAX_RETRIES"], delay=CONFIG["RETRY_DELAY"]):
     for attempt in range(max_retries):
         try:
-            # Создаем новую корутину для каждой попытки
-            return await coro_func()
+            return await coro()
         except Exception as e:
             logger.warning(f"Попытка {attempt + 1} не удалась: {e}")
             if attempt == max_retries - 1:
@@ -253,12 +252,11 @@ async def retry_operation(coro_func, max_retries=CONFIG["MAX_RETRIES"], delay=CO
 semaphore = asyncio.Semaphore(CONFIG["OPENAI_MAX_CONCURRENT"])
 
 async def ask_gpt(prompt: str) -> str:
-    """Запрос к OpenAI с улучшенной обработкой ошибок."""
+    """Запрос к OpenAI с обработкой ошибок."""
     async with semaphore:
         async def gpt_call():
-            # Используем новый метод OpenAI API
             response = await openai.chat.completions.create(
-                model="gpt-3.5-turbo",  # Проверь, какая модель тебе доступна
+                model="gpt-3.5-turbo",  # Замени на "gpt-4o", если есть доступ
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.85,
                 max_tokens=CONFIG["OPENAI_MAX_TOKENS"],
@@ -268,8 +266,8 @@ async def ask_gpt(prompt: str) -> str:
         try:
             return await retry_operation(gpt_call)
         except Exception as e:
-            logger.error(f"Не удалось выполнить запрос к OpenAI: {e}")
-            return "Произошла ошибка при обработке запроса. Попробуйте снова или свяжитесь с @zamira_esoteric."
+            logger.error(f"Ошибка OpenAI: {e}")
+            return "Произошла ошибка при генерации ответа. Попробуйте позже или свяжитесь с @zamira_esoteric."
 
 async def send_long_message(chat_id: int, message: str, bot):
     parts = [message[i:i + CONFIG["MAX_MESSAGE_LENGTH"]] for i in range(0, len(message), CONFIG["MAX_MESSAGE_LENGTH"])]
@@ -285,19 +283,20 @@ async def send_long_message(chat_id: int, message: str, bot):
         try:
             await retry_operation(send_part)
         except Exception as e:
-            logger.error(f"Не удалось отправить часть сообщения: {e}")
-            await bot.send_message(chat_id=chat_id, text="Произошла ошибка при отправке. Попробуйте снова или свяжитесь с @zamira_esoteric.")
+            logger.error(f"Ошибка отправки части сообщения: {e}")
+            await bot.send_message(chat_id=chat_id, text="Ошибка при отправке. Свяжитесь с @zamira_esoteric.")
 
 async def delayed_response_job(context: ContextTypes.DEFAULT_TYPE):
+    """Функция для отложенной отправки ответа."""
     chat_id, result, bot = context.job.data
-    logger.info(f"Запуск delayed_response_job для {chat_id}, результат: {result[:100]}...")
+    logger.info(f"Выполняю отложенную задачу для {chat_id}")
     try:
         cleaned_result = clean_text(result)
         await send_long_message(chat_id, cleaned_result, bot)
         await bot.send_message(chat_id=chat_id, text=clean_text(REVIEW_TEXT))
     except Exception as e:
         logger.error(f"Ошибка в delayed_response_job: {e}")
-        await bot.send_message(chat_id=chat_id, text="Произошла ошибка при отправке ответа. Попробуйте снова или свяжитесь с @zamira_esoteric.")
+        await bot.send_message(chat_id=chat_id, text="Ошибка при отправке ответа. Свяжитесь с @zamira_esoteric.")
 
 # Обработчики
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -351,16 +350,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             result = await ask_gpt(prompt)
             if not context.job_queue:
-                logger.error("JobQueue не настроен!")
-                await query.message.reply_text("Произошла внутренняя ошибка бота. Свяжитесь с @zamira_esoteric.")
+                logger.error("JobQueue не инициализирован!")
+                await query.message.reply_text("Ошибка бота. Свяжитесь с @zamira_esoteric.")
                 return
             context.job_queue.run_once(delayed_response_job, CONFIG["DELAY_SECONDS"], data=(query.message.chat.id, result, context.bot))
             completed_users.add(user_id)
             del user_data[user_id]
-            logger.info(f"Заявка пользователя {user_id} обработана.")
+            logger.info(f"Заявка пользователя {user_id} запланирована.")
     except Exception as e:
         logger.error(f"Ошибка в handle_callback: {e}")
-        await query.message.reply_text("Произошла ошибка. Попробуйте снова или свяжитесь с @zamira_esoteric.")
+        await query.message.reply_text("Ошибка обработки запроса. Свяжитесь с @zamira_esoteric.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message and update.message.text:
@@ -401,5 +400,5 @@ if __name__ == "__main__":
         logger.info("Бот запускается...")
         app.run_polling()
     except Exception as e:
-        logger.critical(f"Критическая ошибка запуска: {e}")
+        logger.critical(f"Ошибка запуска: {e}")
         raise
