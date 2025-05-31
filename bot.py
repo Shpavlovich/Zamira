@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 # --- Конфигурация ---
 CONFIG = {
-    "DELAY_SECONDS": 8040,  # 8040 секунд задержки (2 часа 14 минут)
+    "DELAY_SECONDS": 10,  # 8040 секунд задержки (2 часа 14 минут)
     "MAX_MESSAGE_LENGTH": 3900,
     "OPENAI_MAX_TOKENS_TAROT": 5000,
     "OPENAI_MAX_TOKENS_MATRIX": 7000,
