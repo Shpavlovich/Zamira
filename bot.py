@@ -990,7 +990,7 @@ async def cancel_conv_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def cancel_conv_inline_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    logger.info(f"Пользователь {query.from_user.id} отменил диалог через инлайн кнопку.")
+    logger.info(f"Пользователь {query.from_user.id} нажал кнопку Отменить")
     return await common_cancel_logic(update, context, query=query)
 
 # --- Определение функции help_command ---
@@ -1044,7 +1044,7 @@ async def main() -> None:
                 ],
             },
             fallbacks=[CommandHandler("cancel", cancel_conv_command)],
-            per_message=False,
+            per_message=True,  # Изменено на True для отслеживания callback-запросов
             per_chat=True,
             per_user=True,
         )
