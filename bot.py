@@ -33,10 +33,10 @@ logger = logging.getLogger(__name__)
 
 # --- Конфигурация ---
 CONFIG = {
-    "DELAY_SECONDS_MAIN_SERVICE": 7200, # 2 часа для основной услуги (реальное значение)
-    # "DELAY_SECONDS_MAIN_SERVICE": 60, # Тестовое значение - 1 минута
-    "DELAY_SECONDS_REVIEW_REQUEST": 43200, # 12 часов для запроса отзыва (реальное значение)
-    # "DELAY_SECONDS_REVIEW_REQUEST": 120, # Тестовое значение - 2 минуты
+    "DELAY_SECONDS_MAIN_SERVICE": 7200, 
+    # "DELAY_SECONDS_MAIN_SERVICE": 60, # Тест
+    "DELAY_SECONDS_REVIEW_REQUEST": 43200, 
+    # "DELAY_SECONDS_REVIEW_REQUEST": 120, # Тест
     "MAX_MESSAGE_LENGTH": 3900,
     "OPENAI_MAX_TOKENS_TAROT": 4000,
     "OPENAI_MAX_TOKENS_MATRIX": 6000,
@@ -44,7 +44,7 @@ CONFIG = {
     "RETRY_DELAY": 7,
     "MAX_RETRIES": 2,
     "COMPLETED_USERS_FILE": "completed_users.json",
-    "MIN_TEXT_LENGTH_TAROT": 50, # Минимальная длина для описания ситуации в Таро
+    "MIN_TEXT_LENGTH_TAROT": 50, 
 }
 
 # --- Настройка API ---
@@ -126,7 +126,7 @@ CONFIRM_DETAILS_TAROT_TEXT = """
 Ваш запрос:
 «{story}»
 
-Всё верно? Если да, нажимайте «Подтвердить». Если хотите что-то изменить, лучше отменить и начать заново.
+Всё верно? Если да, нажимайте «Подтвердить». Если хотите что-то изменить, лучше отменить и начать заново с помощью команды /start или кнопки ниже (если она есть).
 """
 CONFIRM_DETAILS_MATRIX_TEXT = """
 Спасибо! Проверьте, пожалуйста:
@@ -180,7 +180,7 @@ CONTACT_TEXT = """
 Если у вас есть вопросы или вы хотите заказать платную консультацию, мой контакт для связи: @zamira_esoteric 🌟
 Пишите, буду рада помочь!
 """
-CANCEL_TEXT = "Поняла вас. Ваш текущий запрос отменен. Вы всегда можете начать заново из главного меню."
+CANCEL_TEXT = "Поняла вас. Ваш текущий запрос отменен. Вы всегда можете начать заново из главного меню, нажав /start."
 # === Конец текстовых констант ===
 
 
@@ -418,6 +418,11 @@ async def review_request_job(context: ContextTypes.DEFAULT_TYPE):
 
 # --- ConversationHandler состояния ---
 CHOOSE_SERVICE, ASK_NAME, ASK_DOB, ASK_TAROT_STORY, CONFIRM_DATA = range(5)
+CANCEL_CALLBACK_DATA = "cancel_conv_inline" # Константа для callback_data отмены
+
+# --- Клавиатура отмены ---
+def get_cancel_keyboard():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("❌ Отменить", callback_data=CANCEL_CALLBACK_DATA)]])
 
 # --- Функции ConversationHandler ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -428,7 +433,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await update.message.reply_text(clean_text(PRIVATE_MESSAGE))
         return ConversationHandler.END
 
-    context.user_data.clear() 
+    if context.user_data: # Очищаем на случай, если диалог был прерван некорректно
+        context.user_data.clear() 
+        
     keyboard = [
         [InlineKeyboardButton("🃏 Расклад Таро", callback_data="tarot")],
         [InlineKeyboardButton("🌟 Матрица Судьбы", callback_data="matrix")],
@@ -437,116 +444,115 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     await update.message.reply_text(clean_text(WELCOME_TEXT), reply_markup=InlineKeyboardMarkup(keyboard))
     return CHOOSE_SERVICE
 
-async def choose_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # Переименовал для ясности
+async def choose_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
     user_data = context.user_data 
-    if user_data is None: # На всякий случай, если диалог был прерван некорректно
+    if user_data is None: 
         user_data = context.user_data = {}
-
 
     service_type = query.data
     if service_type not in ["tarot", "matrix", "contact_direct", "back_to_start"]:
-        logger.warning(f"Неизвестный callback_data в choose_service: {service_type}")
-        return CHOOSE_SERVICE # Остаемся на месте или предлагаем начать заново
+        logger.warning(f"Неизвестный callback_data в choose_service_callback: {service_type}")
+        return CHOOSE_SERVICE 
 
     if service_type == "contact_direct":
         await query.edit_message_text(clean_text(CONTACT_TEXT), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад в меню", callback_data="back_to_start")]]))
         return CHOOSE_SERVICE 
     elif service_type == "back_to_start":
-        keyboard = [
+        keyboard_main = [
             [InlineKeyboardButton("🃏 Расклад Таро", callback_data="tarot")],
             [InlineKeyboardButton("🌟 Матрица Судьбы", callback_data="matrix")],
             [InlineKeyboardButton("📩 Связь со мной", callback_data="contact_direct")],
         ]
-        await query.edit_message_text(clean_text(WELCOME_TEXT), reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text(clean_text(WELCOME_TEXT), reply_markup=InlineKeyboardMarkup(keyboard_main))
         return CHOOSE_SERVICE
 
     user_data["service_type"] = service_type # type: ignore
     
     intro_text = TAROT_INTRO_TEXT if service_type == "tarot" else MATRIX_INTRO_TEXT
+    next_message_text = ASK_NAME_TEXT
+    
     try:
         await query.edit_message_text(text=clean_text(intro_text))
-    except TelegramError as e: # Если сообщение не изменилось, это нормально
+    except TelegramError as e: 
         if "Message is not modified" not in str(e):
-            logger.error(f"Ошибка редактирования сообщения в choose_service: {e}")
-            # Если редактирование не удалось, отправляем новое, чтобы диалог не застрял
-            await query.message.reply_text(text=clean_text(intro_text))
-
-
-    await query.message.reply_text(clean_text(ASK_NAME_TEXT)) 
+            logger.error(f"Ошибка редактирования сообщения в choose_service_callback: {e}")
+            await query.message.reply_text(text=clean_text(intro_text)) # Отправляем новое, если edit не удался
+    
+    await query.message.reply_text(clean_text(next_message_text), reply_markup=get_cancel_keyboard()) 
     return ASK_NAME
 
-async def ask_name_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # Переименовал
+async def ask_name_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_data = context.user_data
-    if user_data is None: return ConversationHandler.END # Диалог завершен или не начат
+    if user_data is None: return ConversationHandler.END
 
     name = update.message.text
     if not name or len(name.strip()) < 2:
-        await update.message.reply_text("Имя кажется слишком коротким. Пожалуйста, введите корректное имя.")
+        await update.message.reply_text("Имя кажется слишком коротким. Пожалуйста, введите корректное имя.", reply_markup=get_cancel_keyboard())
         return ASK_NAME
     user_data["name"] = clean_text(name.strip()) # type: ignore
-    await update.message.reply_text(clean_text(ASK_DOB_TEXT))
+    await update.message.reply_text(clean_text(ASK_DOB_TEXT), reply_markup=get_cancel_keyboard())
     return ASK_DOB
 
-async def ask_dob_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # Переименовал
+async def ask_dob_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_data = context.user_data
     if user_data is None or "service_type" not in user_data : return ConversationHandler.END # type: ignore
 
     dob_text = update.message.text
     if not dob_text or not validate_date_format(dob_text.strip()):
-        await update.message.reply_text("Пожалуйста, введите дату в формате ДД.ММ.ГГГГ (например, 15.03.1990).")
+        await update.message.reply_text("Пожалуйста, введите дату в формате ДД.ММ.ГГГГ (например, 15.03.1990).", reply_markup=get_cancel_keyboard())
         return ASK_DOB
     if not validate_date_semantic(dob_text.strip()):
-        await update.message.reply_text("Дата кажется некорректной (например, неверный год или день). Пожалуйста, проверьте и введите снова.")
+        await update.message.reply_text("Дата кажется некорректной (например, неверный год или день). Пожалуйста, проверьте и введите снова.", reply_markup=get_cancel_keyboard())
         return ASK_DOB
         
     user_data["dob"] = clean_text(dob_text.strip()) # type: ignore
 
     if user_data["service_type"] == "tarot": # type: ignore
-        await update.message.reply_text(clean_text(ASK_TAROT_STORY_TEXT))
+        await update.message.reply_text(clean_text(ASK_TAROT_STORY_TEXT), reply_markup=get_cancel_keyboard())
         return ASK_TAROT_STORY
     else: 
         confirm_text = CONFIRM_DETAILS_MATRIX_TEXT.format(name=user_data["name"], dob=user_data["dob"]) # type: ignore
         keyboard = [[InlineKeyboardButton("✅ Всё верно, подтверждаю", callback_data="confirm_final")],
-                    [InlineKeyboardButton("❌ Отменить", callback_data="cancel_conv")]]
+                    [InlineKeyboardButton("❌ Отменить (данные не сохранятся)", callback_data=CANCEL_CALLBACK_DATA)]] # Кнопка отмены и на этапе подтверждения
         await update.message.reply_text(confirm_text, reply_markup=InlineKeyboardMarkup(keyboard))
         return CONFIRM_DATA
 
-async def ask_tarot_story_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # Переименовал
+async def ask_tarot_story_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_data = context.user_data
     if user_data is None: return ConversationHandler.END
 
     story_text = update.message.text
     min_len = CONFIG.get("MIN_TEXT_LENGTH_TAROT", 50)
     if not story_text or len(story_text.strip()) < min_len:
-        await update.message.reply_text(f"Пожалуйста, опишите вашу ситуацию подробнее (не менее {min_len} символов).")
+        await update.message.reply_text(f"Пожалуйста, опишите вашу ситуацию подробнее (не менее {min_len} символов).", reply_markup=get_cancel_keyboard())
         return ASK_TAROT_STORY
     
     user_data["story"] = clean_text(story_text.strip()) # type: ignore
     confirm_text = CONFIRM_DETAILS_TAROT_TEXT.format(name=user_data["name"], dob=user_data["dob"], story=user_data["story"]) # type: ignore
     keyboard = [[InlineKeyboardButton("✅ Всё верно, подтверждаю", callback_data="confirm_final")],
-                [InlineKeyboardButton("❌ Отменить", callback_data="cancel_conv")]]
+                [InlineKeyboardButton("❌ Отменить (данные не сохранятся)", callback_data=CANCEL_CALLBACK_DATA)]]
     await update.message.reply_text(confirm_text, reply_markup=InlineKeyboardMarkup(keyboard))
     return CONFIRM_DATA
 
-async def confirm_data_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # Переименовал
+async def confirm_data_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
     user_data = context.user_data
     if user_data is None or "service_type" not in user_data: # type: ignore
         await query.message.reply_text("Произошла ошибка в диалоге, данные утеряны. Пожалуйста, начните сначала: /start")
+        if user_data: user_data.clear()
         return ConversationHandler.END
 
     user_id = query.from_user.id
 
-    if query.data == "confirm_final":
+    if query.data == "confirm_final": # Эта кнопка не должна иметь опции отмены здесь, т.к. это финальное подтверждение
         try:
             await query.edit_message_text(text=clean_text(RESPONSE_WAIT), reply_markup=None)
         except TelegramError as e:
-             if "Message is not modified" not in str(e): logger.error(f"Ошибка edit_message_text в confirm_data: {e}")
-             # Если не удалось отредактировать, просто продолжаем
-
+             if "Message is not modified" not in str(e): logger.error(f"Ошибка edit_message_text в confirm_data_callback: {e}")
+             
         service_type = user_data["service_type"] # type: ignore
         input_for_gpt = f"Имя: {user_data['name']}\nДата рождения: {user_data['dob']}" # type: ignore
         if service_type == "tarot":
@@ -561,10 +567,11 @@ async def confirm_data_callback(update: Update, context: ContextTypes.DEFAULT_TY
         result = await ask_gpt(system_prompt_template, final_user_prompt, max_tokens_val)
 
         if result is None:
-            await query.message.reply_text(clean_text(OPENAI_ERROR_MESSAGE))
+            await query.message.reply_text(clean_text(OPENAI_ERROR_MESSAGE)) # Отправляем новое сообщение
             
+            # Восстанавливаем предыдущее сообщение с кнопками для повторной попытки или отмены
             keyboard_retry = [[InlineKeyboardButton("Попробовать подтвердить снова", callback_data="confirm_final")],
-                              [InlineKeyboardButton("❌ Отменить", callback_data="cancel_conv")]]
+                              [InlineKeyboardButton("❌ Отменить (данные не сохранятся)", callback_data=CANCEL_CALLBACK_DATA)]] # Используем тот же CANCEL_CALLBACK_DATA
             
             current_confirm_text = ""
             if service_type == "tarot":
@@ -572,10 +579,11 @@ async def confirm_data_callback(update: Update, context: ContextTypes.DEFAULT_TY
             else:
                  current_confirm_text = CONFIRM_DETAILS_MATRIX_TEXT.format(name=user_data.get("name","?"), dob=user_data.get("dob","?")) # type: ignore
             try: 
+                # Не пытаемся редактировать сообщение с ошибкой, а отправляем новое с кнопками подтверждения
                 await query.message.reply_text(text=current_confirm_text, reply_markup=InlineKeyboardMarkup(keyboard_retry))
             except Exception as e_reply:
                 logger.error(f"Не удалось отправить кнопки повтора после ошибки OpenAI: {e_reply}")
-            return CONFIRM_DATA
+            return CONFIRM_DATA 
 
         if not context.job_queue:
             logger.error("JobQueue не инициализирован!")
@@ -590,38 +598,57 @@ async def confirm_data_callback(update: Update, context: ContextTypes.DEFAULT_TY
         user_data.clear() # type: ignore
         return ConversationHandler.END
 
-    elif query.data == "cancel_conv":
-        try:
-            await query.edit_message_text(text=clean_text(CANCEL_TEXT))
-        except TelegramError as e:
-            if "Message is not modified" not in str(e): logger.error(f"Ошибка edit_message_text при отмене: {e}")
-            await query.message.reply_text(clean_text(CANCEL_TEXT)) # Если не отредактировалось, отправляем новое
+    # Если это был не "confirm_final", то это должен быть CANCEL_CALLBACK_DATA из кнопок на этапе подтверждения
+    # который будет обработан cancel_conv_inline_callback в fallbacks.
+    # Но для чистоты, если бы мы не использовали глобальный fallback:
+    # elif query.data == CANCEL_CALLBACK_DATA: # Обработка отмены на этапе подтверждения
+    #    return await common_cancel_logic(update, context, query=query)
 
+    return CONFIRM_DATA # Остаемся здесь, если какой-то неожиданный callback
 
-        user_data.clear() # type: ignore
-        keyboard_start = [
-            [InlineKeyboardButton("🃏 Расклад Таро", callback_data="tarot")],
-            [InlineKeyboardButton("🌟 Матрица Судьбы", callback_data="matrix")],
-            [InlineKeyboardButton("📩 Связь со мной", callback_data="contact_direct")],
-        ]
-        # Отправляем новое сообщение с главным меню, т.к. предыдущее могло быть отредактировано или удалено
-        await query.message.reply_text(clean_text(WELCOME_TEXT), reply_markup=InlineKeyboardMarkup(keyboard_start))
-        return CHOOSE_SERVICE
-
-    return CONFIRM_DATA
-
-async def cancel_conv_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text(clean_text(CANCEL_TEXT))
+async def common_cancel_logic(update: Update, context: ContextTypes.DEFAULT_TYPE, query: Optional[CallbackQuery] = None) -> int:
+    """Общая логика отмены для команды и инлайн кнопки."""
     if context.user_data:
         context.user_data.clear()
     
-    keyboard = [
+    cancel_message_text = clean_text(CANCEL_TEXT)
+    
+    if query: # Если отмена через кнопку
+        try:
+            await query.edit_message_text(text=cancel_message_text, reply_markup=None)
+        except TelegramError as e:
+            if "Message is not modified" not in str(e): 
+                logger.warning(f"Не удалось отредактировать сообщение при отмене через кнопку: {e}")
+            # Если не удалось отредактировать (например, сообщение старое), отправим новое
+            await query.message.reply_text(text=cancel_message_text)
+    elif update.message: # Если отмена через команду /cancel
+        await update.message.reply_text(text=cancel_message_text)
+
+    # Отправляем главное меню как новое сообщение
+    keyboard_main = [
         [InlineKeyboardButton("🃏 Расклад Таро", callback_data="tarot")],
         [InlineKeyboardButton("🌟 Матрица Судьбы", callback_data="matrix")],
         [InlineKeyboardButton("📩 Связь со мной", callback_data="contact_direct")],
     ]
-    await update.message.reply_text(clean_text(WELCOME_TEXT), reply_markup=InlineKeyboardMarkup(keyboard))
-    return CHOOSE_SERVICE
+    # Определяем, какому чату отправлять главное меню
+    chat_to_reply = query.message.chat if query and query.message else update.message.chat if update.message else None
+    if chat_to_reply:
+        await chat_to_reply.send_message(clean_text(WELCOME_TEXT), reply_markup=InlineKeyboardMarkup(keyboard_main))
+    
+    return ConversationHandler.END
+
+
+async def cancel_conv_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Отмена диалога через команду /cancel."""
+    logger.info(f"Пользователь {update.effective_user.id} отменил диалог командой /cancel.")
+    return await common_cancel_logic(update, context)
+
+async def cancel_conv_inline_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Отмена диалога через инлайн кнопку."""
+    query = update.callback_query
+    await query.answer()
+    logger.info(f"Пользователь {query.from_user.id} отменил диалог через инлайн кнопку.")
+    return await common_cancel_logic(update, context, query=query)
 
 
 async def handle_satisfaction_and_other_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -635,7 +662,7 @@ async def handle_satisfaction_and_other_callbacks(update: Update, context: Conte
         answer = parts[1] 
         service_type = parts[2] 
         
-        original_message_text = query.message.text # Сохраняем текст для редактирования без кнопок
+        original_message_text = query.message.text 
         
         if answer == "yes":
             await query.edit_message_text(text=f"{original_message_text}\n\n{clean_text(REVIEW_PROMISE_TEXT)}", reply_markup=None)
@@ -648,10 +675,6 @@ async def handle_satisfaction_and_other_callbacks(update: Update, context: Conte
         elif answer == "no":
             await query.edit_message_text(text=f"{original_message_text}\n\n{clean_text(NO_PROBLEM_TEXT)}", reply_markup=None)
     
-    # Обработка нажатия "Связь со мной" или "Назад в меню" вне основного диалога, если такие кнопки остались
-    elif query.data == "contact_direct_main_menu": # Если это кнопка "Связь со мной" из какого-то общего меню
-         await query.edit_message_text(clean_text(CONTACT_TEXT), reply_markup=None) # Можно добавить кнопку "Главное меню" сюда
-    # Другие общие колбэки можно добавить сюда
 
 async def post_fallback_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message and update.effective_user: 
@@ -660,20 +683,12 @@ async def post_fallback_message(update: Update, context: ContextTypes.DEFAULT_TY
             await update.message.reply_text(clean_text(PRIVATE_MESSAGE))
             return
         
-        # Если у пользователя есть активный диалог, это сообщение может быть для него
-        # ConversationHandler должен перехватывать сообщения, если они соответствуют текущему состоянию.
-        # Этот fallback сработает, если сообщение не подошло ни одному состоянию ИЛИ диалог не активен.
-        current_conversation_state = context.user_data.get(ConversationHandler.STATE) if context.user_data else None # type: ignore
-
-        if current_conversation_state is None: # Нет активного диалога
+        # Проверяем, не находится ли пользователь в активном диалоге (user_data не пусто)
+        # Это очень упрощенная проверка. ConversationHandler сам решает, что делать с "лишними" сообщениями.
+        if not context.user_data or not context.user_data.get(ConversationHandler.STATE): # type: ignore
             await update.message.reply_text(
             "Кажется, мы не находимся в процессе оформления запроса. Нажмите /start, чтобы начать или выбрать услугу 🔮.",
         )
-        # Если есть активный диалог, но сообщение не подошло (например, команда вместо текста),
-        # то ConversationHandler должен сам обработать это через свои fallbacks или просто проигнорировать.
-        # Либо можно добавить здесь более умную логику, например:
-        # else:
-        #     await update.message.reply_text("Я ожидаю от вас другой информации на этом шаге. Пожалуйста, следуйте инструкциям или используйте /cancel для отмены.")
 
 
 # --- Запуск бота ---
@@ -681,7 +696,6 @@ if __name__ == "__main__":
     try:
         app_builder = ApplicationBuilder().token(BOT_TOKEN)
         app_builder.concurrent_updates(10) 
-        # Явно создаем JobQueue, чтобы быть уверенными, что он есть
         app_builder.job_queue(JobQueue()) 
         app = app_builder.build()
 
@@ -694,21 +708,23 @@ if __name__ == "__main__":
                 ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name_message)],
                 ASK_DOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_dob_message)],
                 ASK_TAROT_STORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_tarot_story_message)],
-                CONFIRM_DATA: [CallbackQueryHandler(confirm_data_callback, pattern="^(confirm_final|cancel_conv)$")],
+                CONFIRM_DATA: [CallbackQueryHandler(confirm_data_callback, pattern="^confirm_final$")], # Только confirm_final здесь
             },
             fallbacks=[
                 CommandHandler("cancel", cancel_conv_command), 
-                CommandHandler("start", start_command) # Позволяет перезапустить диалог в любой момент
+                CommandHandler("start", start_command), # Позволяет перезапустить диалог в любой момент
+                CallbackQueryHandler(cancel_conv_inline_callback, pattern=f"^{CANCEL_CALLBACK_DATA}$") # Обработчик для инлайн кнопки отмены
             ],
             per_message=False, 
         )
 
         app.add_handler(conv_handler)
-        app.add_handler(CallbackQueryHandler(handle_satisfaction_and_other_callbacks, pattern="^satisfaction_|^contact_direct_main_menu$"))
+        app.add_handler(CallbackQueryHandler(handle_satisfaction_and_other_callbacks, pattern="^satisfaction_"))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, post_fallback_message))
 
         logger.info("Бот Замира запускается...")
-        app.run_polling()
+        app.run_polling(allowed_updates=Update.ALL_TYPES) # Явно указываем все типы апдейтов
     except Exception as e:
         logger.critical(f"Критическая ошибка при запуске бота: {e}", exc_info=True)
         raise
+
