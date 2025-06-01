@@ -5,7 +5,7 @@ from typing import Dict, Optional, Set, Any, List, Tuple
 import asyncio
 import json
 import openai
-import random # Для вариаций ответов
+import random
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, ReactionTypeEmoji
 from telegram.constants import ParseMode, ChatAction 
 from telegram.ext import (
@@ -37,9 +37,7 @@ logger = logging.getLogger(__name__)
 CONFIG = {
     "ADMIN_IDS": [7611426172], 
     "DELAY_SECONDS_MAIN_SERVICE": 7200, 
-    # "DELAY_SECONDS_MAIN_SERVICE": 10, # Тест
     "DELAY_SECONDS_REVIEW_REQUEST": 43200, 
-    # "DELAY_SECONDS_REVIEW_REQUEST": 20, # Тест
     "MAX_MESSAGE_LENGTH": 3900,
     "OPENAI_MAX_TOKENS_TAROT": 4000,
     "OPENAI_MAX_TOKENS_MATRIX": 6000,
@@ -58,7 +56,7 @@ BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not BOT_TOKEN or not openai.api_key:
     logger.critical("Отсутствуют токены TELEGRAM_TOKEN или OPENAI_API_KEY.")
     raise ValueError("Токены TELEGRAM_TOKEN и OPENAI_API_KEY должны быть установлены.")
-logger.info("Токены бота и OpenAI проверены.") # Этот лог остается здесь
+logger.info("Токены бота и OpenAI проверены.")
 
 # --- Хранилище данных (completed_users) ---
 completed_users: Set[int] = set()
@@ -83,7 +81,6 @@ def save_completed_users(users_set: Set[int]):
         logger.error(f"Ошибка сохранения {CONFIG['COMPLETED_USERS_FILE']}: {e}")
 
 completed_users = load_completed_users()
-
 
 # === Текстовые константы ===
 WELCOME_TEXT = """
@@ -152,7 +149,6 @@ CONFIRM_DETAILS_TAROT_TEXT_DISPLAY = """
 """ 
 EDIT_CHOICE_TEXT = "Если в данных выше есть ошибка, вы можете выбрать пункт для исправления. Если всё верно, нажимайте «Всё верно, подтверждаю»."
 
-
 RESPONSE_WAIT_VARIANTS = [
     "Благодарю! 🙏 Ваша заявка принята.\nЯ приступаю к работе. Ответ подготовлю для вас в течение примерно 2-3 часов. Ожидайте! ✨",
     "Спасибо! Заявка в обработке. 🌿\nЗамира уже получила ваш запрос и скоро начнет разбор. Ответ будет готов через 2-3 часа.",
@@ -176,7 +172,6 @@ FAQ_ANSWERS = {
     "faq_free_service": "Да, одну услугу – расклад Таро или разбор Матрицы – я предоставляю бесплатно. Это моя возможность познакомиться с вами и показать свой подход. В качестве энергообмена я лишь прошу оставить честный отзыв о моей работе на Авито, если консультация была для вас ценной. 🙏"
 }
 # === Конец текстовых констант ===
-
 
 # === Промпты OpenAI ===
 PROMPT_TAROT_SYSTEM = """
@@ -267,6 +262,7 @@ PROMPT_MATRIX_SYSTEM = """
 """
 PROMPT_MATRIX_USER = "Данные клиента: {input_text}"
 # === Конец промптов OpenAI ===
+
 # --- Утилитарные функции ---
 def get_random_variant(variants_list: List[str]) -> str:
     """Возвращает случайный вариант из списка строк."""
@@ -289,8 +285,7 @@ def validate_date_semantic(date_text: str) -> bool:
     """Проверяет, является ли дата в формате ДД.ММ.ГГГГ корректной (существующей)."""
     try:
         date = datetime.strptime(date_text, "%d.%m.%Y")
-        # Проверка на разумные пределы года
-        if date.year < 1900 or date.year > datetime.now().year + 5: # Допускаем небольшой запас в будущее (например, для детей)
+        if date.year < 1900 or date.year > datetime.now().year + 5:
             return False
         return True
     except ValueError:
@@ -301,15 +296,11 @@ def is_valid_name(name: str) -> bool:
     name_stripped = name.strip()
     if len(name_stripped) < 2:
         return False
-    # Запрещаем строки, которые полностью соответствуют формату даты
     if validate_date_format(name_stripped):
         return False
-    # Разрешаем буквы (кириллица, латиница), пробелы, дефисы, апострофы.
-    # И проверяем, что есть хотя бы одна буква, чтобы не прошли только пробелы/дефисы.
     if re.fullmatch(r"^[A-Za-zА-Яа-яЁё\s'-]+$", name_stripped) and any(char.isalpha() for char in name_stripped):
         return True
     return False
-
 
 async def retry_operation(coro, max_retries=CONFIG["MAX_RETRIES"], delay=CONFIG["RETRY_DELAY"]):
     """Повторяет выполнение асинхронной операции при ошибке."""
@@ -321,7 +312,7 @@ async def retry_operation(coro, max_retries=CONFIG["MAX_RETRIES"], delay=CONFIG[
             if attempt == max_retries - 1:
                 raise
             await asyncio.sleep(delay * (2 ** attempt))
-    return None # Если все попытки не удались
+    return None
 
 semaphore = asyncio.Semaphore(CONFIG["OPENAI_MAX_CONCURRENT"])
 
@@ -366,7 +357,6 @@ async def ask_gpt(system_prompt_template: str, user_prompt_content: str, max_tok
             return response.choices[0].message.content.strip()
         
         try:
-            # Показываем индикатор "печатает..." во время запроса к OpenAI
             await context.bot.send_chat_action(chat_id=user_id_for_error, action=ChatAction.TYPING)
             return await retry_operation(gpt_call)
         except Exception as e:
@@ -392,9 +382,9 @@ async def send_long_message(chat_id: int, message: str, bot_instance):
             await retry_operation(send_part_op)
         except Exception as e:
             logger.error(f"Ошибка отправки части сообщения пользователю {chat_id}: {e}")
-            if i == 0: # Если даже первая часть не ушла, сообщаем об общей проблеме
+            if i == 0:
                 await bot_instance.send_message(chat_id=chat_id, text=clean_text("Произошла ошибка при отправке ответа. Часть информации может быть утеряна. Свяжитесь с @zamira_esoteric."))
-            raise # Передаем ошибку выше
+            raise
 
 async def send_admin_notification(context: ContextTypes.DEFAULT_TYPE, message: str, critical: bool = False):
     """Отправляет уведомление всем администраторам."""
@@ -407,17 +397,17 @@ async def send_admin_notification(context: ContextTypes.DEFAULT_TYPE, message: s
             
 # --- Callbacks для JobQueue ---
 async def main_service_job(context: ContextTypes.DEFAULT_TYPE):
-    job_data = context.job.data 
-    user_id: int = job_data["user_id"] # type: ignore
-    result: str = job_data["result"] # type: ignore
-    service_type: str = job_data["service_type"] # type: ignore
-    user_name_for_log = job_data.get("user_name_for_log", str(user_id)) # type: ignore
-
-    service_type_rus_map = {"tarot": "расклад Таро", "matrix": "разбор Матрицы Судьбы"}
-    service_type_rus = service_type_rus_map.get(service_type, "услугу")
-
-    logger.info(f"Выполняю отложенную задачу ({service_type_rus}) для {user_name_for_log} ({user_id})")
     try:
+        job_data = context.job.data 
+        user_id: int = job_data["user_id"]
+        result: str = job_data["result"]
+        service_type: str = job_data["service_type"]
+        user_name_for_log = job_data.get("user_name_for_log", str(user_id))
+
+        service_type_rus_map = {"tarot": "расклад Таро", "matrix": "разбор Матрицы Судьбы"}
+        service_type_rus = service_type_rus_map.get(service_type, "услугу")
+
+        logger.info(f"Выполняю отложенную задачу ({service_type_rus}) для {user_name_for_log} ({user_id})")
         cleaned_result = clean_text(result) 
         await send_long_message(user_id, cleaned_result, context.bot)
         
@@ -431,36 +421,34 @@ async def main_service_job(context: ContextTypes.DEFAULT_TYPE):
         save_completed_users(completed_users)
         logger.info(f"Пользователь {user_name_for_log} ({user_id}) успешно получил {service_type_rus} и добавлен в completed_users.")
         await send_admin_notification(context, f"✅ Пользователь {user_name_for_log} (ID: {user_id}) успешно получил {service_type_rus}.")
-
     except Exception as e:
         error_message = f"Критическая ошибка в main_service_job для пользователя {user_name_for_log} ({user_id}): {e}"
         logger.error(error_message, exc_info=True)
         await send_admin_notification(context, error_message, critical=True)
         try:
-            await context.bot.send_message(user_id, clean_text("К сожалению, при подготовке вашего ответа произошла серьезная ошибка. Администратор уже уведомлен. Пожалуйста, свяжитесь с @zamira_esoteric для уточнения деталей."))
+            await context.bot.send_message(chat_id=user_id, text=clean_text("К сожалению, при подготовке вашего ответа произошла серьезная ошибка. Администратор уже уведомлен. Пожалуйста, свяжитесь с @zamira_esoteric для уточнения деталей."))
         except Exception as e_nested:
             logger.error(f"Не удалось отправить сообщение об ошибке в main_service_job пользователю {user_id}: {e_nested}")
 
 async def review_request_job(context: ContextTypes.DEFAULT_TYPE):
-    job_data = context.job.data 
-    user_id: int = job_data["user_id"] # type: ignore
-    service_type: str = job_data["service_type"] # type: ignore
-    service_type_rus_map = {"tarot": "расклад Таро", "matrix": "разбор Матрицы Судьбы"}
-    service_type_rus = service_type_rus_map.get(service_type, "услугу")
-    logger.info(f"Отправка отложенного запроса на отзыв пользователю {user_id} для {service_type_rus}")
     try:
-        await context.bot.send_message(user_id, clean_text(REVIEW_TEXT_DELAYED.format(service_type_rus=service_type_rus)))
+        job_data = context.job.data 
+        user_id: int = job_data["user_id"]
+        service_type: str = job_data["service_type"]
+        service_type_rus_map = {"tarot": "расклад Таро", "matrix": "разбор Матрицы Судьбы"}
+        service_type_rus = service_type_rus_map.get(service_type, "услугу")
+        logger.info(f"Отправка отложенного запроса на отзыв пользователю {user_id} для {service_type_rus}")
+        await context.bot.send_message(chat_id=user_id, text=clean_text(REVIEW_TEXT_DELAYED.format(service_type_rus=service_type_rus)))
     except Exception as e:
         logger.error(f"Ошибка при отправке запроса на отзыв пользователю {user_id}: {e}", exc_info=True)
 
 # --- ConversationHandler состояния ---
 (CHOOSE_SERVICE, 
- ASK_MATRIX_NAME, ASK_MATRIX_DOB, CONFIRM_MATRIX_DATA,                 # 0, 1, 2, 3
- ASK_TAROT_MAIN_PERSON_NAME, ASK_TAROT_MAIN_PERSON_DOB,              # 4, 5
- ASK_TAROT_BACKSTORY, ASK_TAROT_OTHER_PEOPLE, ASK_TAROT_QUESTIONS,    # 6, 7, 8
- SHOW_TAROT_CONFIRM_OPTIONS # 9 - Показ всех данных Таро и кнопок "Редактировать/Подтвердить"
- # HANDLE_FAQ_CHOICE больше не нужен как состояние ConvHandler, т.к. FAQ обрабатывается отдельно
- ) = range(10) # Обновили количество состояний до 10
+ ASK_MATRIX_NAME, ASK_MATRIX_DOB, CONFIRM_MATRIX_DATA,
+ ASK_TAROT_MAIN_PERSON_NAME, ASK_TAROT_MAIN_PERSON_DOB,
+ ASK_TAROT_BACKSTORY, ASK_TAROT_OTHER_PEOPLE, ASK_TAROT_QUESTIONS,
+ SHOW_TAROT_CONFIRM_OPTIONS
+ ) = range(10)
 
 CANCEL_CALLBACK_DATA = "cancel_conv_inline" 
 EDIT_PREFIX_TAROT = "edit_field_tarot_" 
@@ -483,430 +471,465 @@ def get_tarot_edit_keyboard() -> InlineKeyboardMarkup:
 
 # --- Функции ConversationHandler ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user = update.effective_user
-    if not user: 
-        logger.warning("Не удалось получить пользователя в start_command")
-        return ConversationHandler.END
-    
-    if user.id in completed_users:
-        await update.message.reply_text(clean_text(PRIVATE_MESSAGE))
-        return ConversationHandler.END
-
-    if context.user_data: 
-        context.user_data.clear() 
+    try:
+        user = update.effective_user
+        if not user:
+            logger.warning("Не удалось получить пользователя в start_command")
+            return ConversationHandler.END
         
-    keyboard = [
-        [InlineKeyboardButton("🃏 Расклад Таро", callback_data="tarot")],
-        [InlineKeyboardButton("🌟 Матрица Судьбы", callback_data="matrix")],
-        [InlineKeyboardButton("📩 Связь со мной", callback_data="contact_direct")],
-        [InlineKeyboardButton("💡 Помощь / FAQ", callback_data="help_section")] # Добавили кнопку помощи
-    ]
-    await update.message.reply_text(clean_text(WELCOME_TEXT), reply_markup=InlineKeyboardMarkup(keyboard))
-    return CHOOSE_SERVICE
-
-async def choose_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-    user_data = context.user_data 
-    if user_data is None: 
-        user_data = context.user_data = {}
-
-    service_type = query.data
-    
-    if service_type == "contact_direct":
-        await query.edit_message_text(clean_text(CONTACT_TEXT), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад в меню", callback_data="back_to_start")]]))
-        return CHOOSE_SERVICE 
-    elif service_type == "back_to_start":
-        keyboard_main = [
-            [InlineKeyboardButton("🃏 Расклад Таро", callback_data="tarot")],
-            [InlineKeyboardButton("🌟 Матрица Судьбы", callback_data="matrix")],
-            [InlineKeyboardButton("📩 Связь со мной", callback_data="contact_direct")],
-            [InlineKeyboardButton("💡 Помощь / FAQ", callback_data="help_section")]
-        ]
-        await query.edit_message_text(clean_text(WELCOME_TEXT), reply_markup=InlineKeyboardMarkup(keyboard_main))
-        return CHOOSE_SERVICE
-    elif service_type == "help_section": # Обработка кнопки помощи из главного меню
-        await help_command(update, context) # Вызываем функцию помощи
-        # Важно: help_command сам отправит сообщение и кнопки. 
-        # CHOOSE_SERVICE должен оставаться текущим состоянием, чтобы пользователь мог вернуться или выбрать услугу.
-        # Либо help_command должен возвращать CHOOSE_SERVICE если это CallbackQuery.
-        # Для простоты, help_command будет просто отправлять сообщение, а пользователь может дальше нажать кнопки выбора услуги.
-        # Либо, если help_command вызывается из CallbackQuery, он должен отредактировать сообщение.
-        # Пока оставим так: help_command отправит новое сообщение.
-        return CHOOSE_SERVICE
-
-
-    user_data["service_type"] = service_type # type: ignore
-    user_data["current_step"] = 1 # type: ignore 
-    
-    if service_type == "tarot":
-        user_data["total_steps"] = 5 # type: ignore 
-        await query.edit_message_text(text=clean_text(TAROT_INTRO_TEXT))
-        prompt_text = ASK_TAROT_MAIN_PERSON_NAME_TEXT 
-        await query.message.reply_text(clean_text(prompt_text), reply_markup=get_cancel_keyboard())
-        return ASK_TAROT_MAIN_PERSON_NAME
-    elif service_type == "matrix":
-        user_data["total_steps"] = 2 # type: ignore 
-        await query.edit_message_text(text=clean_text(MATRIX_INTRO_TEXT))
-        prompt_text = ASK_MATRIX_NAME_TEXT 
-        await query.message.reply_text(clean_text(prompt_text), reply_markup=get_cancel_keyboard())
-        return ASK_MATRIX_NAME
-    else:
-        logger.warning(f"Неизвестный service_type в choose_service_callback: {service_type}")
-        # Возвращаем пользователя к начальному выбору, если что-то пошло не так
-        keyboard_main_fallback = [
-            [InlineKeyboardButton("🃏 Расклад Таро", callback_data="tarot")],
-            [InlineKeyboardButton("🌟 Матрица Судьбы", callback_data="matrix")],
-            [InlineKeyboardButton("📩 Связь со мной", callback_data="contact_direct")],
-            [InlineKeyboardButton("💡 Помощь / FAQ", callback_data="help_section")]
-        ]
-        await query.edit_message_text(clean_text(WELCOME_TEXT), reply_markup=InlineKeyboardMarkup(keyboard_main_fallback))
-        return CHOOSE_SERVICE
-# --- Функции для Матрицы (продолжение ConversationHandler) ---
-async def ask_matrix_name_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_data = context.user_data # type: ignore
-    name_input = update.message.text
-    if not name_input or not is_valid_name(name_input):
-        error_msg = f"Хм, «{name_input}» не очень похоже на имя. Имя должно содержать только буквы, пробелы, дефисы или апострофы, и быть не короче двух символов. Попробуйте еще раз, пожалуйста."
-        await update.message.reply_text(clean_text(error_msg), reply_markup=get_cancel_keyboard())
-        return ASK_MATRIX_NAME
-    user_data["matrix_name"] = clean_text(name_input.strip())
-    user_data["current_step"] = 2 # type: ignore
-    
-    reply_variants = [
-        ASK_MATRIX_DOB_TEXT, # Уже содержит (Шаг 2 из 2)
-        f"(Шаг 2 из 2) Отлично, {user_data['matrix_name']}! Теперь нужна ваша дата рождения (ДД.ММ.ГГГГ).",
-        f"(Шаг 2 из 2) Записала, {user_data['matrix_name']}. Далее, пожалуйста, дату вашего рождения в формате ДД.ММ.ГГГГ."
-    ]
-    await update.message.reply_text(clean_text(get_random_variant(reply_variants)), reply_markup=get_cancel_keyboard())
-    return ASK_MATRIX_DOB
-
-async def ask_matrix_dob_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_data = context.user_data # type: ignore
-    dob_text_input = update.message.text
-    if not dob_text_input:
-        await update.message.reply_text("Вы не ввели дату. Пожалуйста, введите дату в формате ДД.ММ.ГГГГ.", reply_markup=get_cancel_keyboard())
-        return ASK_MATRIX_DOB
-
-    dob_text = dob_text_input.strip()
-    if not validate_date_format(dob_text):
-        await update.message.reply_text(f"Формат даты «{dob_text}» неверный. Пожалуйста, введите дату в формате ДД.ММ.ГГГГ (например, 15.03.1990).", reply_markup=get_cancel_keyboard())
-        return ASK_MATRIX_DOB
-    if not validate_date_semantic(dob_text):
-        await update.message.reply_text(f"Дата «{dob_text}» кажется некорректной (например, неверный год или несуществующий день). Пожалуйста, проверьте и введите снова.", reply_markup=get_cancel_keyboard())
-        return ASK_MATRIX_DOB
-        
-    user_data["matrix_dob"] = clean_text(dob_text)
-    confirm_text = CONFIRM_DETAILS_MATRIX_TEXT.format(name=user_data["matrix_name"], dob=user_data["matrix_dob"])
-    keyboard = [[InlineKeyboardButton("✅ Всё верно, подтверждаю", callback_data="confirm_final_matrix")],
-                [InlineKeyboardButton("❌ Отменить", callback_data=CANCEL_CALLBACK_DATA)]]
-    await update.message.reply_text(confirm_text, reply_markup=InlineKeyboardMarkup(keyboard))
-    return CONFIRM_MATRIX_DATA
-
-# --- Функции для Таро (продолжение ConversationHandler) ---
-async def ask_tarot_main_person_name_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_data = context.user_data # type: ignore
-    name_input = update.message.text
-    if not name_input or not is_valid_name(name_input):
-        error_msg = f"Хм, «{name_input}» не очень похоже на имя. Имя должно содержать только буквы, пробелы, дефисы или апострофы. Попробуйте еще раз."
-        await update.message.reply_text(clean_text(error_msg), reply_markup=get_cancel_keyboard())
-        return ASK_TAROT_MAIN_PERSON_NAME
-        
-    user_data["tarot_main_person_name"] = clean_text(name_input.strip())
-    
-    if user_data.pop("editing_field_tarot_main_person_name", None): # type: ignore Если редактировали это поле
-        return await show_tarot_confirm_options_message(update, context)
-
-    user_data["current_step"] = 2 # type: ignore
-    prompt_text = ASK_TAROT_MAIN_PERSON_DOB_TEXT.format(name=user_data["tarot_main_person_name"])
-    await update.message.reply_text(clean_text(prompt_text), reply_markup=get_cancel_keyboard())
-    return ASK_TAROT_MAIN_PERSON_DOB
-
-async def ask_tarot_main_person_dob_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_data = context.user_data # type: ignore
-    dob_text_input = update.message.text
-    if not dob_text_input:
-        await update.message.reply_text("Вы не ввели дату. Пожалуйста, введите дату в формате ДД.ММ.ГГГГ.", reply_markup=get_cancel_keyboard())
-        return ASK_TAROT_MAIN_PERSON_DOB
-    
-    dob_text = dob_text_input.strip()
-    if not validate_date_format(dob_text):
-        await update.message.reply_text(f"Формат даты «{dob_text}» неверный. Пожалуйста, введите дату в формате ДД.ММ.ГГГГ.", reply_markup=get_cancel_keyboard())
-        return ASK_TAROT_MAIN_PERSON_DOB
-    if not validate_date_semantic(dob_text):
-        await update.message.reply_text(f"Дата «{dob_text}» кажется некорректной. Проверьте год и формат.", reply_markup=get_cancel_keyboard())
-        return ASK_TAROT_MAIN_PERSON_DOB
-        
-    user_data["tarot_main_person_dob"] = clean_text(dob_text)
-
-    if user_data.pop("editing_field_tarot_main_person_dob", None): # type: ignore
-        return await show_tarot_confirm_options_message(update, context)
-
-    user_data["current_step"] = 3 # type: ignore
-    await update.message.reply_text(clean_text(ASK_TAROT_BACKSTORY_TEXT), reply_markup=get_cancel_keyboard())
-    return ASK_TAROT_BACKSTORY
-
-async def ask_tarot_backstory_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_data = context.user_data # type: ignore
-    backstory_input = update.message.text
-    min_len = CONFIG.get("MIN_TEXT_LENGTH_TAROT_BACKSTORY", 30)
-    if not backstory_input or len(backstory_input.strip()) < min_len:
-        await update.message.reply_text(f"Пожалуйста, опишите ситуацию подробнее (не менее {min_len} символов). Это важно для точности расклада.", reply_markup=get_cancel_keyboard())
-        return ASK_TAROT_BACKSTORY
-        
-    user_data["tarot_backstory"] = clean_text(backstory_input.strip())
-
-    if user_data.pop("editing_field_tarot_backstory", None): # type: ignore
-        return await show_tarot_confirm_options_message(update, context)
-
-    user_data["current_step"] = 4 # type: ignore
-    await update.message.reply_text(clean_text(ASK_TAROT_OTHER_PEOPLE_TEXT), reply_markup=get_cancel_keyboard())
-    return ASK_TAROT_OTHER_PEOPLE
-
-async def ask_tarot_other_people_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_data = context.user_data # type: ignore
-    other_people_input = update.message.text
-    if not other_people_input or len(other_people_input.strip()) < 2: 
-        await update.message.reply_text("Пожалуйста, укажите других участников или напишите 'нет', если их нет.", reply_markup=get_cancel_keyboard())
-        return ASK_TAROT_OTHER_PEOPLE
-        
-    user_data["tarot_other_people"] = clean_text(other_people_input.strip())
-
-    if user_data.pop("editing_field_tarot_other_people", None): # type: ignore
-        return await show_tarot_confirm_options_message(update, context)
-
-    user_data["current_step"] = 5 # type: ignore
-    await update.message.reply_text(clean_text(ASK_TAROT_QUESTIONS_TEXT), reply_markup=get_cancel_keyboard())
-    return ASK_TAROT_QUESTIONS
-
-async def ask_tarot_questions_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_data = context.user_data # type: ignore
-    questions_input = update.message.text
-    min_len = CONFIG.get("MIN_TEXT_LENGTH_TAROT_QUESTION", 10)
-    if not questions_input or len(questions_input.strip()) < min_len:
-        await update.message.reply_text(f"Пожалуйста, сформулируйте ваш вопрос(ы) к картам (не менее {min_len} символов). Если вопросов несколько, напишите их все в одном сообщении.", reply_markup=get_cancel_keyboard())
-        return ASK_TAROT_QUESTIONS
-        
-    user_data["tarot_questions"] = clean_text(questions_input.strip())
-
-    # После сбора всех данных (или редактирования последнего поля), переходим к экрану подтверждения/редактирования
-    return await show_tarot_confirm_options_message(update, context)
-
-
-async def show_tarot_confirm_options_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_data = context.user_data # type: ignore
-    
-    # Это сообщение будет либо новым, либо отредактированным
-    effective_message = update.effective_message 
-    if not effective_message:
-        logger.warning("show_tarot_confirm_options_message: effective_message is None, trying to send new.")
-        if update.effective_chat:
-            effective_message = await context.bot.send_message(update.effective_chat.id, "Проверяем ваши данные...")
-        else: # Крайний случай, некуда отправлять
-            logger.error("show_tarot_confirm_options_message: effective_chat is None, cannot proceed.")
+        if user.id in completed_users:
+            await update.message.reply_text(clean_text(PRIVATE_MESSAGE))
             return ConversationHandler.END
 
-    if not user_data or user_data.get("service_type") != "tarot": 
-        await effective_message.reply_text(clean_text("Произошла ошибка при сборе данных для Таро. Давайте начнем сначала."), reply_markup=get_cancel_keyboard())
-        return await start_command(update, context) 
+        if context.user_data:
+            context.user_data.clear()
 
-    confirm_text_display = CONFIRM_DETAILS_TAROT_TEXT_DISPLAY.format(
-        main_person_name=user_data.get("tarot_main_person_name", "-"),
-        main_person_dob=user_data.get("tarot_main_person_dob", "-"),
-        backstory=user_data.get("tarot_backstory", "-"),
-        other_people=user_data.get("tarot_other_people", "-"),
-        questions=user_data.get("tarot_questions", "-")
-    )
-    
-    keyboard = get_tarot_edit_keyboard()
-    
-    # Отправляем или редактируем сообщение с данными
-    # Если мы пришли сюда после редактирования поля, query.message может быть тем сообщением, которое запросило данные.
-    # Мы хотим отредактировать сообщение, где были кнопки "edit", или отправить новое, если то было удалено.
-    
-    message_to_edit_id = user_data.pop("tarot_confirm_options_message_id", None) # type: ignore
-    new_message_with_buttons = None
+        keyboard = [
+            [InlineKeyboardButton("🃏 Расклад Таро", callback_data="tarot")],
+            [InlineKeyboardButton("🌟 Матрица Судьбы", callback_data="matrix")],
+            [InlineKeyboardButton("📩 Связь со мной", callback_data="contact_direct")],
+            [InlineKeyboardButton("💡 Помощь / FAQ", callback_data="help_section")]
+        ]
+        await update.message.reply_text(clean_text(WELCOME_TEXT), reply_markup=InlineKeyboardMarkup(keyboard))
+        return CHOOSE_SERVICE
+    except Exception as e:
+        logger.error(f"Ошибка в start_command: {e}", exc_info=True)
+        await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
+        return ConversationHandler.END
 
-    if message_to_edit_id:
-        try:
-            await context.bot.edit_message_text(
-                chat_id=effective_message.chat_id,
-                message_id=message_to_edit_id,
-                text=clean_text(confirm_text_display) + "\n\n" + clean_text(EDIT_CHOICE_TEXT),
-                reply_markup=keyboard
-            )
-            new_message_with_buttons = await context.bot.get_chat(effective_message.chat_id).fetch_message(message_to_edit_id)
+async def choose_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        query = update.callback_query
+        await query.answer()
+        user_data = context.user_data 
+        if user_data is None:
+            user_data = context.user_data = {}
 
-        except TelegramError as e:
-            logger.warning(f"Не удалось отредактировать сообщение ({message_to_edit_id}) в show_tarot_confirm_options: {e}. Отправляю новое.")
-            await effective_message.reply_text(clean_text(confirm_text_display)) 
-            new_message_with_buttons = await effective_message.reply_text(clean_text(EDIT_CHOICE_TEXT), reply_markup=keyboard)
-    else:
-        await effective_message.reply_text(clean_text(confirm_text_display)) 
-        new_message_with_buttons = await effective_message.reply_text(clean_text(EDIT_CHOICE_TEXT), reply_markup=keyboard)
-    
-    if user_data and new_message_with_buttons: # type: ignore
-        user_data["tarot_confirm_options_message_id"] = new_message_with_buttons.message_id # type: ignore
+        service_type = query.data
         
-    return SHOW_TAROT_CONFIRM_OPTIONS
+        if service_type == "contact_direct":
+            await query.edit_message_text(clean_text(CONTACT_TEXT), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад в меню", callback_data="back_to_start")]]))
+            return CHOOSE_SERVICE 
+        elif service_type == "back_to_start":
+            keyboard_main = [
+                [InlineKeyboardButton("🃏 Расклад Таро", callback_data="tarot")],
+                [InlineKeyboardButton("🌟 Матрица Судьбы", callback_data="matrix")],
+                [InlineKeyboardButton("📩 Связь со мной", callback_data="contact_direct")],
+                [InlineKeyboardButton("💡 Помощь / FAQ", callback_data="help_section")]
+            ]
+            await query.edit_message_text(clean_text(WELCOME_TEXT), reply_markup=InlineKeyboardMarkup(keyboard_main))
+            return CHOOSE_SERVICE
+        elif service_type == "help_section":
+            await help_command(update, context)
+            return CHOOSE_SERVICE
+
+        user_data["service_type"] = service_type
+        user_data["current_step"] = 1 
+        
+        if service_type == "tarot":
+            user_data["total_steps"] = 5
+            await query.edit_message_text(text=clean_text(TAROT_INTRO_TEXT))
+            prompt_text = ASK_TAROT_MAIN_PERSON_NAME_TEXT 
+            await query.message.reply_text(clean_text(prompt_text), reply_markup=get_cancel_keyboard())
+            return ASK_TAROT_MAIN_PERSON_NAME
+        elif service_type == "matrix":
+            user_data["total_steps"] = 2
+            await query.edit_message_text(text=clean_text(MATRIX_INTRO_TEXT))
+            prompt_text = ASK_MATRIX_NAME_TEXT 
+            await query.message.reply_text(clean_text(prompt_text), reply_markup=get_cancel_keyboard())
+            return ASK_MATRIX_NAME
+        else:
+            logger.warning(f"Неизвестный service_type в choose_service_callback: {service_type}")
+            keyboard_main_fallback = [
+                [InlineKeyboardButton("🃏 Расклад Таро", callback_data="tarot")],
+                [InlineKeyboardButton("🌟 Матрица Судьбы", callback_data="matrix")],
+                [InlineKeyboardButton("📩 Связь со мной", callback_data="contact_direct")],
+                [InlineKeyboardButton("💡 Помощь / FAQ", callback_data="help_section")]
+            ]
+            await query.edit_message_text(clean_text(WELCOME_TEXT), reply_markup=InlineKeyboardMarkup(keyboard_main_fallback))
+            return CHOOSE_SERVICE
+    except Exception as e:
+        logger.error(f"Ошибка в choose_service_callback: {e}", exc_info=True)
+        await query.message.reply_text("Произошла ошибка. Попробуйте позже.")
+        return ConversationHandler.END
+
+async def ask_matrix_name_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        user_data = context.user_data
+        name_input = update.message.text
+        if not name_input or not is_valid_name(name_input):
+            error_msg = f"Хм, «{name_input}» не очень похоже на имя. Имя должно содержать только буквы, пробелы, дефисы или апострофы, и быть не короче двух символов. Попробуйте еще раз, пожалуйста."
+            await update.message.reply_text(clean_text(error_msg), reply_markup=get_cancel_keyboard())
+            return ASK_MATRIX_NAME
+        user_data["matrix_name"] = clean_text(name_input.strip())
+        user_data["current_step"] = 2
+        
+        reply_variants = [
+            ASK_MATRIX_DOB_TEXT,
+            f"(Шаг 2 из 2) Отлично, {user_data['matrix_name']}! Теперь нужна ваша дата рождения (ДД.ММ.ГГГГ).",
+            f"(Шаг 2 из 2) Записала, {user_data['matrix_name']}. Далее, пожалуйста, дату вашего рождения в формате ДД.ММ.ГГГГ."
+        ]
+        await update.message.reply_text(clean_text(get_random_variant(reply_variants)), reply_markup=get_cancel_keyboard())
+        return ASK_MATRIX_DOB
+    except Exception as e:
+        logger.error(f"Ошибка в ask_matrix_name_message: {e}", exc_info=True)
+        await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
+        return ConversationHandler.END
+
+async def ask_matrix_dob_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        user_data = context.user_data
+        dob_text_input = update.message.text
+        if not dob_text_input:
+            await update.message.reply_text("Вы не ввели дату. Пожалуйста, введите дату в формате ДД.ММ.ГГГГ.", reply_markup=get_cancel_keyboard())
+            return ASK_MATRIX_DOB
+
+        dob_text = dob_text_input.strip()
+        if not validate_date_format(dob_text):
+            await update.message.reply_text(f"Формат даты «{dob_text}» неверный. Пожалуйста, введите дату в формате ДД.ММ.ГГГГ (например, 15.03.1990).", reply_markup=get_cancel_keyboard())
+            return ASK_MATRIX_DOB
+        if not validate_date_semantic(dob_text):
+            await update.message.reply_text(f"Дата «{dob_text}» кажется некорректной (например, неверный год или несуществующий день). Пожалуйста, проверьте и введите снова.", reply_markup=get_cancel_keyboard())
+            return ASK_MATRIX_DOB
+            
+        user_data["matrix_dob"] = clean_text(dob_text)
+        confirm_text = CONFIRM_DETAILS_MATRIX_TEXT.format(name=user_data["matrix_name"], dob=user_data["matrix_dob"])
+        keyboard = [[InlineKeyboardButton("✅ Всё верно, подтверждаю", callback_data="confirm_final_matrix")],
+                    [InlineKeyboardButton("❌ Отменить", callback_data=CANCEL_CALLBACK_DATA)]]
+        await update.message.reply_text(confirm_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return CONFIRM_MATRIX_DATA
+    except Exception as e:
+        logger.error(f"Ошибка в ask_matrix_dob_message: {e}", exc_info=True)
+        await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
+        return ConversationHandler.END
+
+async def ask_tarot_main_person_name_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        user_data = context.user_data
+        name_input = update.message.text
+        if not name_input or not is_valid_name(name_input):
+            error_msg = f"Хм, «{name_input}» не очень похоже на имя. Имя должно содержать только буквы, пробелы, дефисы или апострофы. Попробуйте еще раз."
+            await update.message.reply_text(clean_text(error_msg), reply_markup=get_cancel_keyboard())
+            return ASK_TAROT_MAIN_PERSON_NAME
+            
+        user_data["tarot_main_person_name"] = clean_text(name_input.strip())
+        
+        if user_data.pop("editing_field_tarot_main_person_name", None):
+            return await show_tarot_confirm_options_message(update, context)
+
+        user_data["current_step"] = 2
+        prompt_text = ASK_TAROT_MAIN_PERSON_DOB_TEXT.format(name=user_data["tarot_main_person_name"])
+        await update.message.reply_text(clean_text(prompt_text), reply_markup=get_cancel_keyboard())
+        return ASK_TAROT_MAIN_PERSON_DOB
+    except Exception as e:
+        logger.error(f"Ошибка в ask_tarot_main_person_name_message: {e}", exc_info=True)
+        await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
+        return ConversationHandler.END
+
+async def ask_tarot_main_person_dob_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        user_data = context.user_data
+        dob_text_input = update.message.text
+        if not dob_text_input:
+            await update.message.reply_text("Вы не ввели дату. Пожалуйста, введите дату в формате ДД.ММ.ГГГГ.", reply_markup=get_cancel_keyboard())
+            return ASK_TAROT_MAIN_PERSON_DOB
+        
+        dob_text = dob_text_input.strip()
+        if not validate_date_format(dob_text):
+            await update.message.reply_text(f"Формат даты «{dob_text}» неверный. Пожалуйста, введите дату в формате ДД.ММ.ГГГГ.", reply_markup=get_cancel_keyboard())
+            return ASK_TAROT_MAIN_PERSON_DOB
+        if not validate_date_semantic(dob_text):
+            await update.message.reply_text(f"Дата «{dob_text}» кажется некорректной. Проверьте год и формат.", reply_markup=get_cancel_keyboard())
+            return ASK_TAROT_MAIN_PERSON_DOB
+            
+        user_data["tarot_main_person_dob"] = clean_text(dob_text)
+
+        if user_data.pop("editing_field_tarot_main_person_dob", None):
+            return await show_tarot_confirm_options_message(update, context)
+
+        user_data["current_step"] = 3
+        await update.message.reply_text(clean_text(ASK_TAROT_BACKSTORY_TEXT), reply_markup=get_cancel_keyboard())
+        return ASK_TAROT_BACKSTORY
+    except Exception as e:
+        logger.error(f"Ошибка в ask_tarot_main_person_dob_message: {e}", exc_info=True)
+        await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
+        return ConversationHandler.END
+
+async def ask_tarot_backstory_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        user_data = context.user_data
+        backstory_input = update.message.text
+        min_len = CONFIG.get("MIN_TEXT_LENGTH_TAROT_BACKSTORY", 30)
+        if not backstory_input or len(backstory_input.strip()) < min_len:
+            await update.message.reply_text(f"Пожалуйста, опишите ситуацию подробнее (не менее {min_len} символов). Это важно для точности расклада.", reply_markup=get_cancel_keyboard())
+            return ASK_TAROT_BACKSTORY
+            
+        user_data["tarot_backstory"] = clean_text(backstory_input.strip())
+
+        if user_data.pop("editing_field_tarot_backstory", None):
+            return await show_tarot_confirm_options_message(update, context)
+
+        user_data["current_step"] = 4
+        await update.message.reply_text(clean_text(ASK_TAROT_OTHER_PEOPLE_TEXT), reply_markup=get_cancel_keyboard())
+        return ASK_TAROT_OTHER_PEOPLE
+    except Exception as e:
+        logger.error(f"Ошибка в ask_tarot_backstory_message: {e}", exc_info=True)
+        await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
+        return ConversationHandler.END
+
+async def ask_tarot_other_people_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        user_data = context.user_data
+        other_people_input = update.message.text
+        if not other_people_input or len(other_people_input.strip()) < 2:
+            await update.message.reply_text("Пожалуйста, укажите других участников или напишите 'нет', если их нет.", reply_markup=get_cancel_keyboard())
+            return ASK_TAROT_OTHER_PEOPLE
+            
+        user_data["tarot_other_people"] = clean_text(other_people_input.strip())
+
+        if user_data.pop("editing_field_tarot_other_people", None):
+            return await show_tarot_confirm_options_message(update, context)
+
+        user_data["current_step"] = 5
+        await update.message.reply_text(clean_text(ASK_TAROT_QUESTIONS_TEXT), reply_markup=get_cancel_keyboard())
+        return ASK_TAROT_QUESTIONS
+    except Exception as e:
+        logger.error(f"Ошибка в ask_tarot_other_people_message: {e}", exc_info=True)
+        await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
+        return ConversationHandler.END
+
+async def ask_tarot_questions_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        user_data = context.user_data
+        questions_input = update.message.text
+        min_len = CONFIG.get("MIN_TEXT_LENGTH_TAROT_QUESTION", 10)
+        if not questions_input or len(questions_input.strip()) < min_len:
+            await update.message.reply_text(f"Пожалуйста, сформулируйте ваш вопрос(ы) к картам (не менее {min_len} символов). Если вопросов несколько, напишите их все в одном сообщении.", reply_markup=get_cancel_keyboard())
+            return ASK_TAROT_QUESTIONS
+            
+        user_data["tarot_questions"] = clean_text(questions_input.strip())
+
+        return await show_tarot_confirm_options_message(update, context)
+    except Exception as e:
+        logger.error(f"Ошибка в ask_tarot_questions_message: {e}", exc_info=True)
+        await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
+        return ConversationHandler.END
+
+async def show_tarot_confirm_options_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        user_data = context.user_data
+        
+        effective_message = update.effective_message 
+        if not effective_message:
+            logger.warning("show_tarot_confirm_options_message: effective_message is None, trying to send new.")
+            if update.effective_chat:
+                effective_message = await context.bot.send_message(update.effective_chat.id, "Проверяем ваши данные...")
+            else:
+                logger.error("show_tarot_confirm_options_message: effective_chat is None, cannot proceed.")
+                return ConversationHandler.END
+
+        if not user_data or user_data.get("service_type") != "tarot":
+            await effective_message.reply_text(clean_text("Произошла ошибка при сборе данных для Таро. Давайте начнем сначала."), reply_markup=get_cancel_keyboard())
+            return await start_command(update, context)
+
+        confirm_text_display = CONFIRM_DETAILS_TAROT_TEXT_DISPLAY.format(
+            main_person_name=user_data.get("tarot_main_person_name", "-"),
+            main_person_dob=user_data.get("tarot_main_person_dob", "-"),
+            backstory=user_data.get("tarot_backstory", "-"),
+            other_people=user_data.get("tarot_other_people", "-"),
+            questions=user_data.get("tarot_questions", "-")
+        )
+        
+        keyboard = get_tarot_edit_keyboard()
+        
+        message_to_edit_id = user_data.pop("tarot_confirm_options_message_id", None)
+        new_message_with_buttons = None
+
+        if message_to_edit_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=effective_message.chat_id,
+                    message_id=message_to_edit_id,
+                    text=clean_text(confirm_text_display) + "\n\n" + clean_text(EDIT_CHOICE_TEXT),
+                    reply_markup=keyboard
+                )
+                new_message_with_buttons = await context.bot.get_chat(effective_message.chat_id).fetch_message(message_to_edit_id)
+            except TelegramError as e:
+                logger.warning(f"Не удалось отредактировать сообщение ({message_to_edit_id}) в show_tarot_confirm_options: {e}. Отправляю новое.")
+                await effective_message.reply_text(clean_text(confirm_text_display))
+                new_message_with_buttons = await effective_message.reply_text(clean_text(EDIT_CHOICE_TEXT), reply_markup=keyboard)
+        else:
+            await effective_message.reply_text(clean_text(confirm_text_display))
+            new_message_with_buttons = await effective_message.reply_text(clean_text(EDIT_CHOICE_TEXT), reply_markup=keyboard)
+        
+        if user_data and new_message_with_buttons:
+            user_data["tarot_confirm_options_message_id"] = new_message_with_buttons.message_id
+            
+        return SHOW_TAROT_CONFIRM_OPTIONS
+    except Exception as e:
+        logger.error(f"Ошибка в show_tarot_confirm_options_message: {e}", exc_info=True)
+        await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
+        return ConversationHandler.END
 
 async def edit_field_tarot_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-    user_data = context.user_data
-    if not user_data: return ConversationHandler.END # type: ignore
+    try:
+        query = update.callback_query
+        await query.answer()
+        user_data = context.user_data
+        if not user_data: return ConversationHandler.END
 
-    # Удаляем сообщение с кнопками "Редактировать/Подтвердить"
-    if query.message:
-        try:
-            await query.delete_message()
-            user_data.pop("tarot_confirm_options_message_id", None) # type: ignore Удаляем ID, т.к. сообщение удалено
-        except Exception as e:
-            logger.warning(f"Не удалось удалить сообщение ({query.message.message_id}) с выбором редактирования: {e}")
+        if query.message:
+            try:
+                await query.delete_message()
+                user_data.pop("tarot_confirm_options_message_id", None)
+            except Exception as e:
+                logger.warning(f"Не удалось удалить сообщение ({query.message.message_id}) с выбором редактирования: {e}")
 
-    field_to_edit_key_from_callback = query.data # e.g., "edit_field_tarot_main_person_name"
-    
-    # Этот флаг поможет соответствующей функции ask_..._message понять, что мы в режиме редактирования
-    # и нужно вернуться к show_tarot_confirm_options_message
-    user_data["editing_this_specific_field"] = field_to_edit_key_from_callback # type: ignore
-
-    # Очищаем старое значение поля, чтобы запросить его заново
-    field_name_in_user_data = field_to_edit_key_from_callback.replace(EDIT_PREFIX_TAROT, "tarot_")
-    user_data.pop(field_name_in_user_data, None) # type: ignore
-
-    next_state_map = {
-        f"{EDIT_PREFIX_TAROT}main_person_name": (ASK_TAROT_MAIN_PERSON_NAME, ASK_TAROT_MAIN_PERSON_NAME_TEXT),
-        f"{EDIT_PREFIX_TAROT}main_person_dob": (ASK_TAROT_MAIN_PERSON_DOB, ASK_TAROT_MAIN_PERSON_DOB_TEXT.format(name=user_data.get("tarot_main_person_name", "для него/нее"))), # type: ignore
-        f"{EDIT_PREFIX_TAROT}backstory": (ASK_TAROT_BACKSTORY, ASK_TAROT_BACKSTORY_TEXT),
-        f"{EDIT_PREFIX_TAROT}other_people": (ASK_TAROT_OTHER_PEOPLE, ASK_TAROT_OTHER_PEOPLE_TEXT),
-        f"{EDIT_PREFIX_TAROT}questions": (ASK_TAROT_QUESTIONS, ASK_TAROT_QUESTIONS_TEXT),
-    }
-
-    if field_to_edit_key_from_callback in next_state_map:
-        next_state, prompt_text = next_state_map[field_to_edit_key_from_callback]
-        await query.message.reply_text(clean_text(prompt_text), reply_markup=get_cancel_keyboard())
-        return next_state
-    
-    logger.warning(f"Неизвестное поле для редактирования Таро: {field_to_edit_key_from_callback}")
-    return await show_tarot_confirm_options_message(update, context) # type: ignore
-
-
-# --- Общая функция подтверждения и вызова OpenAI ---
-async def process_final_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE, service_type: str) -> int:
-    query = update.callback_query
-    await query.answer()
-    user_data = context.user_data # type: ignore
-    user_id = query.from_user.id
-    user_name_for_log = query.from_user.full_name or str(user_id)
-    user_data["user_name_for_log"] = user_name_for_log # type: ignore
-
-    # Удаляем или редактируем сообщение с кнопками "Редактировать/Подтвердить"
-    message_id_to_remove = user_data.pop("tarot_confirm_options_message_id", None) if service_type == "tarot" else (query.message.message_id if query.message else None) # type: ignore
-    
-    response_wait_text = get_random_variant(RESPONSE_WAIT_VARIANTS)
-    sent_confirmation_msg = None
-
-    if message_id_to_remove and query.message and query.message.chat:
-        try:
-            sent_confirmation_msg = await context.bot.edit_message_text(
-                chat_id=query.message.chat.id,
-                message_id=message_id_to_remove,
-                text=clean_text(response_wait_text), 
-                reply_markup=None
-            )
-        except TelegramError as e:
-            if "Message is not modified" not in str(e) and "message to edit not found" not in str(e).lower(): 
-                logger.error(f"Ошибка edit_message_text в process_final_confirmation: {e}. Отправляю новое.")
-                sent_confirmation_msg = await query.message.reply_text(text=clean_text(response_wait_text))
-            elif "message to edit not found" in str(e).lower(): # Если сообщение уже удалено
-                 sent_confirmation_msg = await query.message.reply_text(text=clean_text(response_wait_text))
-            else: # Message not modified, or other minor error
-                sent_confirmation_msg = query.message # Assume current message is fine
-    else: # Если нечего редактировать, отправляем новое
-        sent_confirmation_msg = await query.message.reply_text(text=clean_text(response_wait_text))
-             
-    if sent_confirmation_msg: # Ставим реакцию
-        try:
-            await context.bot.set_message_reaction(
-                chat_id=sent_confirmation_msg.chat_id, 
-                message_id=sent_confirmation_msg.message_id, 
-                reaction=[ReactionTypeEmoji("⚡")]
-            )
-        except Exception as e_react:
-            logger.warning(f"Не удалось поставить реакцию на сообщение {sent_confirmation_msg.message_id}: {e_react}")
-             
-    input_for_gpt = ""
-    system_prompt_template = ""
-    user_prompt_template_str = ""
-    max_tokens_val = 0
-    confirm_text_on_error = "" 
-    next_confirm_state_on_error = ConversationHandler.END 
-
-    if service_type == "tarot":
-        input_for_gpt = (
-            f"Основное имя: {user_data.get('tarot_main_person_name', 'Не указано')}\n"
-            f"Дата рождения: {user_data.get('tarot_main_person_dob', 'Не указано')}\n"
-            f"Описание ситуации: {user_data.get('tarot_backstory', 'Не указано')}\n"
-            f"Другие участники: {user_data.get('tarot_other_people', 'Не указано')}\n"
-            f"Вопросы к картам: {user_data.get('tarot_questions', 'Не указано')}"
-        )
-        system_prompt_template = PROMPT_TAROT_SYSTEM
-        user_prompt_template_str = PROMPT_TAROT_USER
-        max_tokens_val = CONFIG["OPENAI_MAX_TOKENS_TAROT"]
-        confirm_text_on_error = CONFIRM_DETAILS_TAROT_TEXT_DISPLAY.format( 
-            main_person_name=user_data.get('tarot_main_person_name', '?'),
-            main_person_dob=user_data.get('tarot_main_person_dob', '?'),
-            backstory=user_data.get('tarot_backstory', '?'),
-            other_people=user_data.get('tarot_other_people', '?'),
-            questions=user_data.get('tarot_questions', '?')
-        )
-        next_confirm_state_on_error = SHOW_TAROT_CONFIRM_OPTIONS 
-
-    elif service_type == "matrix":
-        input_for_gpt = (
-            f"Имя: {user_data.get('matrix_name', 'Не указано')}\n"
-            f"Дата рождения: {user_data.get('matrix_dob', 'Не указано')}"
-        )
-        system_prompt_template = PROMPT_MATRIX_SYSTEM
-        user_prompt_template_str = PROMPT_MATRIX_USER
-        max_tokens_val = CONFIG["OPENAI_MAX_TOKENS_MATRIX"]
-        confirm_text_on_error = CONFIRM_DETAILS_MATRIX_TEXT.format(
-            name=user_data.get('matrix_name', '?'),
-            dob=user_data.get('matrix_dob', '?')
-        )
-        next_confirm_state_on_error = CONFIRM_MATRIX_DATA
-
-    final_user_prompt = user_prompt_template_str.format(input_text=input_for_gpt)
-    # Передаем context и user_id в ask_gpt для уведомлений админа при ошибке OpenAI
-    result = await ask_gpt(system_prompt_template, final_user_prompt, max_tokens_val, context, user_id)
-
-    if result is None: # Ошибка OpenAI
-        await query.message.reply_text(clean_text(OPENAI_ERROR_MESSAGE)) 
+        field_to_edit_key_from_callback = query.data
         
-        keyboard_retry_callback_data = f"confirm_final_{service_type}"
-        keyboard_retry = [[InlineKeyboardButton("Попробовать подтвердить снова", callback_data=keyboard_retry_callback_data)],
-                          [InlineKeyboardButton("❌ Отменить", callback_data=CANCEL_CALLBACK_DATA)]] 
-        try: 
-            await query.message.reply_text(text=clean_text(confirm_text_on_error), reply_markup=InlineKeyboardMarkup(keyboard_retry))
-        except Exception as e_reply:
-            logger.error(f"Не удалось отправить кнопки повтора после ошибки OpenAI: {e_reply}")
-        
-        return next_confirm_state_on_error
+        user_data["editing_this_specific_field"] = field_to_edit_key_from_callback
 
-    if not context.job_queue:
-        logger.error("JobQueue не инициализирован!")
-        await query.message.reply_text("Критическая ошибка бота. Свяжитесь с @zamira_esoteric.")
-        await send_admin_notification(context, "JobQueue не инициализирован при попытке запланировать задачу!", critical=True)
-        if user_data: user_data.clear() 
+        field_name_in_user_data = field_to_edit_key_from_callback.replace(EDIT_PREFIX_TAROT, "tarot_")
+        user_data.pop(field_name_in_user_data, None)
+
+        next_state_map = {
+            f"{EDIT_PREFIX_TAROT}main_person_name": (ASK_TAROT_MAIN_PERSON_NAME, ASK_TAROT_MAIN_PERSON_NAME_TEXT),
+            f"{EDIT_PREFIX_TAROT}main_person_dob": (ASK_TAROT_MAIN_PERSON_DOB, ASK_TAROT_MAIN_PERSON_DOB_TEXT.format(name=user_data.get("tarot_main_person_name", "для него/нее"))),
+            f"{EDIT_PREFIX_TAROT}backstory": (ASK_TAROT_BACKSTORY, ASK_TAROT_BACKSTORY_TEXT),
+            f"{EDIT_PREFIX_TAROT}other_people": (ASK_TAROT_OTHER_PEOPLE, ASK_TAROT_OTHER_PEOPLE_TEXT),
+            f"{EDIT_PREFIX_TAROT}questions": (ASK_TAROT_QUESTIONS, ASK_TAROT_QUESTIONS_TEXT),
+        }
+
+        if field_to_edit_key_from_callback in next_state_map:
+            next_state, prompt_text = next_state_map[field_to_edit_key_from_callback]
+            await query.message.reply_text(clean_text(prompt_text), reply_markup=get_cancel_keyboard())
+            return next_state
+        
+        logger.warning(f"Неизвестное поле для редактирования Таро: {field_to_edit_key_from_callback}")
+        return await show_tarot_confirm_options_message(update, context)
+    except Exception as e:
+        logger.error(f"Ошибка в edit_field_tarot_callback: {e}", exc_info=True)
+        await query.message.reply_text("Произошла ошибка. Попробуйте позже.")
         return ConversationHandler.END
-    
-    job_payload = {"user_id": user_id, "result": result, "service_type": service_type, "user_name_for_log": user_name_for_log}
-    context.job_queue.run_once(main_service_job, CONFIG["DELAY_SECONDS_MAIN_SERVICE"], data=job_payload, name=f"main_job_{user_id}") # type: ignore
-    
-    logger.info(f"Заявка пользователя {user_name_for_log} ({user_id}) ({service_type}) принята и запланирована.")
-    await send_admin_notification(context, f"📨 Новая заявка от {user_name_for_log} (ID: {user_id}) на {service_type}. Запланирована.")
-    if user_data: user_data.clear() 
-    return ConversationHandler.END
+
+async def process_final_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE, service_type: str) -> int:
+    try:
+        query = update.callback_query
+        await query.answer()
+        user_data = context.user_data
+        user_id = query.from_user.id
+        user_name_for_log = query.from_user.full_name or str(user_id)
+        user_data["user_name_for_log"] = user_name_for_log
+
+        message_id_to_remove = user_data.pop("tarot_confirm_options_message_id", None) if service_type == "tarot" else (query.message.message_id if query.message else None)
+        
+        response_wait_text = get_random_variant(RESPONSE_WAIT_VARIANTS)
+        sent_confirmation_msg = None
+
+        if message_id_to_remove and query.message and query.message.chat:
+            try:
+                sent_confirmation_msg = await context.bot.edit_message_text(
+                    chat_id=query.message.chat.id,
+                    message_id=message_id_to_remove,
+                    text=clean_text(response_wait_text), 
+                    reply_markup=None
+                )
+            except TelegramError as e:
+                if "Message is not modified" not in str(e) and "message to edit not found" not in str(e).lower():
+                    logger.error(f"Ошибка edit_message_text в process_final_confirmation: {e}. Отправляю новое.")
+                    sent_confirmation_msg = await query.message.reply_text(text=clean_text(response_wait_text))
+                elif "message to edit not found" in str(e).lower():
+                    sent_confirmation_msg = await query.message.reply_text(text=clean_text(response_wait_text))
+                else:
+                    sent_confirmation_msg = query.message
+        else:
+            sent_confirmation_msg = await query.message.reply_text(text=clean_text(response_wait_text))
+                 
+        if sent_confirmation_msg:
+            try:
+                await context.bot.set_message_reaction(
+                    chat_id=sent_confirmation_msg.chat_id, 
+                    message_id=sent_confirmation_msg.message_id, 
+                    reaction=[ReactionTypeEmoji("⚡")]
+                )
+            except Exception as e_react:
+                logger.warning(f"Не удалось поставить реакцию на сообщение {sent_confirmation_msg.message_id}: {e_react}")
+                 
+        input_for_gpt = ""
+        system_prompt_template = ""
+        user_prompt_template_str = ""
+        max_tokens_val = 0
+        confirm_text_on_error = ""
+        next_confirm_state_on_error = ConversationHandler.END
+
+        if service_type == "tarot":
+            input_for_gpt = (
+                f"Основное имя: {user_data.get('tarot_main_person_name', 'Не указано')}\n"
+                f"Дата рождения: {user_data.get('tarot_main_person_dob', 'Не указано')}\n"
+                f"Описание ситуации: {user_data.get('tarot_backstory', 'Не указано')}\n"
+                f"Другие участники: {user_data.get('tarot_other_people', 'Не указано')}\n"
+                f"Вопросы к картам: {user_data.get('tarot_questions', 'Не указано')}"
+            )
+            system_prompt_template = PROMPT_TAROT_SYSTEM
+            user_prompt_template_str = PROMPT_TAROT_USER
+            max_tokens_val = CONFIG["OPENAI_MAX_TOKENS_TAROT"]
+            confirm_text_on_error = CONFIRM_DETAILS_TAROT_TEXT_DISPLAY.format(
+                main_person_name=user_data.get('tarot_main_person_name', '?'),
+                main_person_dob=user_data.get('tarot_main_person_dob', '?'),
+                backstory=user_data.get('tarot_backstory', '?'),
+                other_people=user_data.get('tarot_other_people', '?'),
+                questions=user_data.get('tarot_questions', '?')
+            )
+            next_confirm_state_on_error = SHOW_TAROT_CONFIRM_OPTIONS
+
+        elif service_type == "matrix":
+            input_for_gpt = (
+                f"Имя: {user_data.get('matrix_name', 'Не указано')}\n"
+                f"Дата рождения: {user_data.get('matrix_dob', 'Не указано')}"
+            )
+            system_prompt_template = PROMPT_MATRIX_SYSTEM
+            user_prompt_template_str = PROMPT_MATRIX_USER
+            max_tokens_val = CONFIG["OPENAI_MAX_TOKENS_MATRIX"]
+            confirm_text_on_error = CONFIRM_DETAILS_MATRIX_TEXT.format(
+                name=user_data.get('matrix_name', '?'),
+                dob=user_data.get('matrix_dob', '?')
+            )
+            next_confirm_state_on_error = CONFIRM_MATRIX_DATA
+
+        final_user_prompt = user_prompt_template_str.format(input_text=input_for_gpt)
+        result = await ask_gpt(system_prompt_template, final_user_prompt, max_tokens_val, context, user_id)
+
+        if result is None:
+            await query.message.reply_text(clean_text(OPENAI_ERROR_MESSAGE))
+            
+            keyboard_retry_callback_data = f"confirm_final_{service_type}"
+            keyboard_retry = [[InlineKeyboardButton("Попробовать подтвердить снова", callback_data=keyboard_retry_callback_data)],
+                              [InlineKeyboardButton("❌ Отменить", callback_data=CANCEL_CALLBACK_DATA)]]
+            try:
+                await query.message.reply_text(text=clean_text(confirm_text_on_error), reply_markup=InlineKeyboardMarkup(keyboard_retry))
+            except Exception as e_reply:
+                logger.error(f"Не удалось отправить кнопки повтора после ошибки OpenAI: {e_reply}")
+            
+            return next_confirm_state_on_error
+
+        if not context.job_queue:
+            logger.error("JobQueue не инициализирован!")
+            await query.message.reply_text("Критическая ошибка бота. Свяжитесь с @zamira_esoteric.")
+            await send_admin_notification(context, "JobQueue не инициализирован при попытке запланировать задачу!", critical=True)
+            if user_data: user_data.clear()
+            return ConversationHandler.END
+        
+        job_payload = {"user_id": user_id, "result": result, "service_type": service_type, "user_name_for_log": user_name_for_log}
+        context.job_queue.run_once(main_service_job, CONFIG["DELAY_SECONDS_MAIN_SERVICE"], data=job_payload, name=f"main_job_{user_id}")
+        
+        logger.info(f"Заявка пользователя {user_name_for_log} ({user_id}) ({service_type}) принята и запланирована.")
+        await send_admin_notification(context, f"📨 Новая заявка от {user_name_for_log} (ID: {user_id}) на {service_type}. Запланирована.")
+        if user_data: user_data.clear()
+        return ConversationHandler.END
+    except Exception as e:
+        logger.error(f"Ошибка в process_final_confirmation: {e}", exc_info=True)
+        await query.message.reply_text("Произошла ошибка. Попробуйте позже.")
+        return ConversationHandler.END
 
 async def confirm_matrix_data_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await process_final_confirmation(update, context, "matrix")
@@ -914,49 +937,50 @@ async def confirm_matrix_data_callback(update: Update, context: ContextTypes.DEF
 async def confirm_tarot_data_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await process_final_confirmation(update, context, "tarot")
 
-# --- Общая логика отмены ---
 async def common_cancel_logic(update: Update, context: ContextTypes.DEFAULT_TYPE, query: Optional[CallbackQuery] = None) -> int:
-    user_data = context.user_data
-    if user_data:
-        user_data.clear() # type: ignore
-    
-    cancel_message_text = clean_text(CANCEL_TEXT)
-    
-    chat_to_reply = None
-    # message_to_edit_id = None # Не используется здесь
+    try:
+        user_data = context.user_data
+        if user_data:
+            user_data.clear()
+        
+        cancel_message_text = clean_text(CANCEL_TEXT)
+        
+        chat_to_reply = None
 
-    if query: 
-        chat_to_reply = query.message.chat
-        # message_to_edit_id = query.message.message_id # Не нужно для этой логики
-        try:
-            # Пытаемся отредактировать сообщение, из которого пришел колбэк (где была кнопка "Отменить")
-            # или сообщение с кнопками выбора редактирования
-            await query.edit_message_text(text=cancel_message_text, reply_markup=None)
-        except TelegramError as e:
-            if "Message is not modified" not in str(e) and "message to edit not found" not in str(e).lower(): 
-                logger.warning(f"Не удалось отредактировать сообщение ({query.message.message_id if query.message else 'unknown'}) при отмене через кнопку: {e}")
-                # Если не удалось отредактировать, отправим новое
-                if query.message: await query.message.reply_text(text=cancel_message_text)
-            elif "message to edit not found" in str(e).lower(): # Если сообщение уже удалено/не найдено
-                 if query.message: await query.message.reply_text(text=cancel_message_text)
-    elif update.message: 
-        await update.message.reply_text(text=cancel_message_text)
-        chat_to_reply = update.message.chat
+        if query:
+            chat_to_reply = query.message.chat
+            try:
+                await query.edit_message_text(text=cancel_message_text, reply_markup=None)
+            except TelegramError as e:
+                if "Message is not modified" not in str(e) and "message to edit not found" not in str(e).lower():
+                    logger.warning(f"Не удалось отредактировать сообщение ({query.message.message_id if query.message else 'unknown'}) при отмене через кнопку: {e}")
+                    if query.message: await query.message.reply_text(text=cancel_message_text)
+                elif "message to edit not found" in str(e).lower():
+                    if query.message: await query.message.reply_text(text=cancel_message_text)
+        elif update.message:
+            await update.message.reply_text(text=cancel_message_text)
+            chat_to_reply = update.message.chat
 
-    if chat_to_reply: 
-        keyboard_main = [
-            [InlineKeyboardButton("🃏 Расклад Таро", callback_data="tarot")],
-            [InlineKeyboardButton("🌟 Матрица Судьбы", callback_data="matrix")],
-            [InlineKeyboardButton("📩 Связь со мной", callback_data="contact_direct")],
-            [InlineKeyboardButton("💡 Помощь / FAQ", callback_data="help_section")]
-        ]
-        try:
-            await context.bot.send_message(chat_id=chat_to_reply.id, text=clean_text(WELCOME_TEXT), reply_markup=InlineKeyboardMarkup(keyboard_main))
-        except Exception as e:
-            logger.error(f"Не удалось отправить WELCOME_TEXT после отмены: {e}")
-    
-    return ConversationHandler.END
-
+        if chat_to_reply:
+            keyboard_main = [
+                [InlineKeyboardButton("🃏 Расклад Таро", callback_data="tarot")],
+                [InlineKeyboardButton("🌟 Матрица Судьбы", callback_data="matrix")],
+                [InlineKeyboardButton("📩 Связь со мной", callback_data="contact_direct")],
+                [InlineKeyboardButton("💡 Помощь / FAQ", callback_data="help_section")]
+            ]
+            try:
+                await context.bot.send_message(chat_id=chat_to_reply.id, text=clean_text(WELCOME_TEXT), reply_markup=InlineKeyboardMarkup(keyboard_main))
+            except Exception as e:
+                logger.error(f"Не удалось отправить WELCOME_TEXT после отмены: {e}")
+        
+        return ConversationHandler.END
+    except Exception as e:
+        logger.error(f"Ошибка в common_cancel_logic: {e}", exc_info=True)
+        if query:
+            await query.message.reply_text("Произошла ошибка при отмене. Попробуйте позже.")
+        elif update.message:
+            await update.message.reply_text("Произошла ошибка при отмене. Попробуйте позже.")
+        return ConversationHandler.END
 
 async def cancel_conv_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = update.effective_user.id if update.effective_user else "Unknown"
@@ -965,6 +989,95 @@ async def cancel_conv_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def cancel_conv_inline_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await query.answer() 
+    await query.answer()
     logger.info(f"Пользователь {query.from_user.id} отменил диалог через инлайн кнопку.")
     return await common_cancel_logic(update, context, query=query)
+
+# --- Определение функции help_command ---
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        query = update.callback_query
+        keyboard = [
+            [InlineKeyboardButton("❓ Как задать вопрос Таро?", callback_data="faq_tarot_question")],
+            [InlineKeyboardButton("❓ Какие данные нужны для Матрицы?", callback_data="faq_matrix_data")],
+            [InlineKeyboardButton("❓ Сколько ждать ответ?", callback_data="faq_wait_time")],
+            [InlineKeyboardButton("❓ Это правда бесплатно?", callback_data="faq_free_service")],
+            [InlineKeyboardButton("⬅️ Назад в меню", callback_data="back_to_start")]
+        ]
+        help_text = "Выберите интересующий вас вопрос:"
+        
+        if query:
+            await query.edit_message_text(clean_text(help_text), reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await update.message.reply_text(clean_text(help_text), reply_markup=InlineKeyboardMarkup(keyboard))
+    except Exception as e:
+        logger.error(f"Ошибка в help_command: {e}", exc_info=True)
+        if query:
+            await query.message.reply_text("Произошла ошибка. Попробуйте позже.")
+        elif update.message:
+            await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
+
+# --- Main функция для запуска бота ---
+async def main() -> None:
+    """Запускает бота."""
+    try:
+        application = ApplicationBuilder().token(BOT_TOKEN).build()
+        logger.info("Application built")
+
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler("start", start_command)],
+            states={
+                CHOOSE_SERVICE: [CallbackQueryHandler(choose_service_callback)],
+                ASK_MATRIX_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_matrix_name_message)],
+                ASK_MATRIX_DOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_matrix_dob_message)],
+                CONFIRM_MATRIX_DATA: [CallbackQueryHandler(confirm_matrix_data_callback, pattern="^confirm_final_matrix$"),
+                                     CallbackQueryHandler(cancel_conv_inline_callback, pattern=f"^{CANCEL_CALLBACK_DATA}$")],
+                ASK_TAROT_MAIN_PERSON_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_tarot_main_person_name_message)],
+                ASK_TAROT_MAIN_PERSON_DOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_tarot_main_person_dob_message)],
+                ASK_TAROT_BACKSTORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_tarot_backstory_message)],
+                ASK_TAROT_OTHER_PEOPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_tarot_other_people_message)],
+                ASK_TAROT_QUESTIONS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_tarot_questions_message)],
+                SHOW_TAROT_CONFIRM_OPTIONS: [
+                    CallbackQueryHandler(edit_field_tarot_callback, pattern=f"^{EDIT_PREFIX_TAROT}"),
+                    CallbackQueryHandler(confirm_tarot_data_callback, pattern="^confirm_final_tarot$"),
+                    CallbackQueryHandler(cancel_conv_inline_callback, pattern=f"^{CANCEL_CALLBACK_DATA}$")
+                ],
+            },
+            fallbacks=[CommandHandler("cancel", cancel_conv_command)],
+            per_message=False,
+            per_chat=True,
+            per_user=True,
+        )
+
+        application.add_handler(conv_handler)
+        logger.info("Handlers added")
+
+        # Добавляем обработчик для команды /help и FAQ
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CallbackQueryHandler(choose_service_callback, pattern="^(faq_|back_to_start)"))
+
+        # Добавляем глобальный обработчик ошибок
+        async def error_handler(update: Optional[Update], context: ContextTypes.DEFAULT_TYPE) -> None:
+            logger.error(f"Ошибка в обновлении {update}: {context.error}", exc_info=True)
+        application.add_error_handler(error_handler)
+        logger.info("Error handler added")
+
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        logger.info("Polling started")
+
+        # Держим бота работающим
+        while True:
+            await asyncio.sleep(3600)
+            logger.info("Bot is still running...")
+    except Exception as e:
+        logger.critical(f"Критическая ошибка в main(): {e}", exc_info=True)
+        raise
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        logger.critical(f"Ошибка в asyncio.run(main()): {e}", exc_info=True)
+        raise
