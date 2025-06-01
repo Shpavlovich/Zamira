@@ -5,7 +5,7 @@ from typing import Dict, Optional, Set, Any
 import asyncio
 import json
 import openai
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery # <--- ИЗМЕНЕНИЕ ЗДЕСЬ
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -418,7 +418,7 @@ async def review_request_job(context: ContextTypes.DEFAULT_TYPE):
 
 # --- ConversationHandler состояния ---
 CHOOSE_SERVICE, ASK_NAME, ASK_DOB, ASK_TAROT_STORY, CONFIRM_DATA = range(5)
-CANCEL_CALLBACK_DATA = "cancel_conv_inline" # Константа для callback_data отмены
+CANCEL_CALLBACK_DATA = "cancel_conv_inline" 
 
 # --- Клавиатура отмены ---
 def get_cancel_keyboard():
@@ -433,7 +433,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await update.message.reply_text(clean_text(PRIVATE_MESSAGE))
         return ConversationHandler.END
 
-    if context.user_data: # Очищаем на случай, если диалог был прерван некорректно
+    if context.user_data: 
         context.user_data.clear() 
         
     keyboard = [
@@ -478,7 +478,7 @@ async def choose_service_callback(update: Update, context: ContextTypes.DEFAULT_
     except TelegramError as e: 
         if "Message is not modified" not in str(e):
             logger.error(f"Ошибка редактирования сообщения в choose_service_callback: {e}")
-            await query.message.reply_text(text=clean_text(intro_text)) # Отправляем новое, если edit не удался
+            await query.message.reply_text(text=clean_text(intro_text)) 
     
     await query.message.reply_text(clean_text(next_message_text), reply_markup=get_cancel_keyboard()) 
     return ASK_NAME
@@ -515,7 +515,7 @@ async def ask_dob_message(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     else: 
         confirm_text = CONFIRM_DETAILS_MATRIX_TEXT.format(name=user_data["name"], dob=user_data["dob"]) # type: ignore
         keyboard = [[InlineKeyboardButton("✅ Всё верно, подтверждаю", callback_data="confirm_final")],
-                    [InlineKeyboardButton("❌ Отменить (данные не сохранятся)", callback_data=CANCEL_CALLBACK_DATA)]] # Кнопка отмены и на этапе подтверждения
+                    [InlineKeyboardButton("❌ Отменить (данные не сохранятся)", callback_data=CANCEL_CALLBACK_DATA)]] 
         await update.message.reply_text(confirm_text, reply_markup=InlineKeyboardMarkup(keyboard))
         return CONFIRM_DATA
 
@@ -547,7 +547,7 @@ async def confirm_data_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     user_id = query.from_user.id
 
-    if query.data == "confirm_final": # Эта кнопка не должна иметь опции отмены здесь, т.к. это финальное подтверждение
+    if query.data == "confirm_final": 
         try:
             await query.edit_message_text(text=clean_text(RESPONSE_WAIT), reply_markup=None)
         except TelegramError as e:
@@ -567,19 +567,24 @@ async def confirm_data_callback(update: Update, context: ContextTypes.DEFAULT_TY
         result = await ask_gpt(system_prompt_template, final_user_prompt, max_tokens_val)
 
         if result is None:
-            await query.message.reply_text(clean_text(OPENAI_ERROR_MESSAGE)) # Отправляем новое сообщение
+            # Сначала отправляем сообщение об ошибке OpenAI
+            await query.message.reply_text(clean_text(OPENAI_ERROR_MESSAGE)) 
             
-            # Восстанавливаем предыдущее сообщение с кнопками для повторной попытки или отмены
+            # Затем восстанавливаем предыдущее сообщение с кнопками для повторной попытки или отмены
             keyboard_retry = [[InlineKeyboardButton("Попробовать подтвердить снова", callback_data="confirm_final")],
-                              [InlineKeyboardButton("❌ Отменить (данные не сохранятся)", callback_data=CANCEL_CALLBACK_DATA)]] # Используем тот же CANCEL_CALLBACK_DATA
+                              [InlineKeyboardButton("❌ Отменить (данные не сохранятся)", callback_data=CANCEL_CALLBACK_DATA)]] 
             
             current_confirm_text = ""
+            # Пытаемся получить данные из user_data, если они там еще есть
+            name_val = user_data.get("name","?") if user_data else "?"
+            dob_val = user_data.get("dob","?") if user_data else "?"
+            story_val = user_data.get("story","?") if user_data else "?"
+
             if service_type == "tarot":
-                 current_confirm_text = CONFIRM_DETAILS_TAROT_TEXT.format(name=user_data.get("name","?"), dob=user_data.get("dob","?"), story=user_data.get("story","?")) # type: ignore
+                 current_confirm_text = CONFIRM_DETAILS_TAROT_TEXT.format(name=name_val, dob=dob_val, story=story_val) 
             else:
-                 current_confirm_text = CONFIRM_DETAILS_MATRIX_TEXT.format(name=user_data.get("name","?"), dob=user_data.get("dob","?")) # type: ignore
+                 current_confirm_text = CONFIRM_DETAILS_MATRIX_TEXT.format(name=name_val, dob=dob_val) 
             try: 
-                # Не пытаемся редактировать сообщение с ошибкой, а отправляем новое с кнопками подтверждения
                 await query.message.reply_text(text=current_confirm_text, reply_markup=InlineKeyboardMarkup(keyboard_retry))
             except Exception as e_reply:
                 logger.error(f"Не удалось отправить кнопки повтора после ошибки OpenAI: {e_reply}")
@@ -588,65 +593,62 @@ async def confirm_data_callback(update: Update, context: ContextTypes.DEFAULT_TY
         if not context.job_queue:
             logger.error("JobQueue не инициализирован!")
             await query.message.reply_text("Критическая ошибка бота. Свяжитесь с @zamira_esoteric.")
-            user_data.clear() # type: ignore
+            if user_data: user_data.clear() # type: ignore
             return ConversationHandler.END
         
         job_payload = {"user_id": user_id, "result": result, "service_type": service_type}
         context.job_queue.run_once(main_service_job, CONFIG["DELAY_SECONDS_MAIN_SERVICE"], data=job_payload, name=f"main_job_{user_id}") # type: ignore
         
         logger.info(f"Заявка пользователя {user_id} ({service_type}) принята и запланирована.")
-        user_data.clear() # type: ignore
+        if user_data: user_data.clear() # type: ignore
         return ConversationHandler.END
 
-    # Если это был не "confirm_final", то это должен быть CANCEL_CALLBACK_DATA из кнопок на этапе подтверждения
-    # который будет обработан cancel_conv_inline_callback в fallbacks.
-    # Но для чистоты, если бы мы не использовали глобальный fallback:
-    # elif query.data == CANCEL_CALLBACK_DATA: # Обработка отмены на этапе подтверждения
-    #    return await common_cancel_logic(update, context, query=query)
-
-    return CONFIRM_DATA # Остаемся здесь, если какой-то неожиданный callback
+    return CONFIRM_DATA
 
 async def common_cancel_logic(update: Update, context: ContextTypes.DEFAULT_TYPE, query: Optional[CallbackQuery] = None) -> int:
-    """Общая логика отмены для команды и инлайн кнопки."""
     if context.user_data:
         context.user_data.clear()
     
     cancel_message_text = clean_text(CANCEL_TEXT)
     
-    if query: # Если отмена через кнопку
+    chat_to_reply = None
+    if query: 
         try:
+            # Пытаемся отредактировать сообщение, из которого пришел колбэк (где была кнопка "Отменить")
             await query.edit_message_text(text=cancel_message_text, reply_markup=None)
+            chat_to_reply = query.message.chat
         except TelegramError as e:
-            if "Message is not modified" not in str(e): 
+            if "Message is not modified" not in str(e) and "message to edit not found" not in str(e).lower(): 
                 logger.warning(f"Не удалось отредактировать сообщение при отмене через кнопку: {e}")
-            # Если не удалось отредактировать (например, сообщение старое), отправим новое
-            await query.message.reply_text(text=cancel_message_text)
-    elif update.message: # Если отмена через команду /cancel
+            # Если не удалось отредактировать (сообщение старое/удалено), отправим новое
+            if query.message:
+                await query.message.reply_text(text=cancel_message_text)
+                chat_to_reply = query.message.chat
+    elif update.message: 
         await update.message.reply_text(text=cancel_message_text)
+        chat_to_reply = update.message.chat
 
-    # Отправляем главное меню как новое сообщение
-    keyboard_main = [
-        [InlineKeyboardButton("🃏 Расклад Таро", callback_data="tarot")],
-        [InlineKeyboardButton("🌟 Матрица Судьбы", callback_data="matrix")],
-        [InlineKeyboardButton("📩 Связь со мной", callback_data="contact_direct")],
-    ]
-    # Определяем, какому чату отправлять главное меню
-    chat_to_reply = query.message.chat if query and query.message else update.message.chat if update.message else None
-    if chat_to_reply:
-        await chat_to_reply.send_message(clean_text(WELCOME_TEXT), reply_markup=InlineKeyboardMarkup(keyboard_main))
-    
+    if chat_to_reply: # Отправляем главное меню как новое сообщение, если есть куда отправлять
+        keyboard_main = [
+            [InlineKeyboardButton("🃏 Расклад Таро", callback_data="tarot")],
+            [InlineKeyboardButton("🌟 Матрица Судьбы", callback_data="matrix")],
+            [InlineKeyboardButton("📩 Связь со мной", callback_data="contact_direct")],
+        ]
+        try:
+            await context.bot.send_message(chat_id=chat_to_reply.id, text=clean_text(WELCOME_TEXT), reply_markup=InlineKeyboardMarkup(keyboard_main))
+        except Exception as e:
+            logger.error(f"Не удалось отправить WELCOME_TEXT после отмены: {e}")
+
     return ConversationHandler.END
 
 
 async def cancel_conv_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Отмена диалога через команду /cancel."""
-    logger.info(f"Пользователь {update.effective_user.id} отменил диалог командой /cancel.")
+    logger.info(f"Пользователь {update.effective_user.id if update.effective_user else 'Unknown'} отменил диалог командой /cancel.")
     return await common_cancel_logic(update, context)
 
 async def cancel_conv_inline_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Отмена диалога через инлайн кнопку."""
     query = update.callback_query
-    await query.answer()
+    await query.answer() # Отвечаем на колбэк как можно скорее
     logger.info(f"Пользователь {query.from_user.id} отменил диалог через инлайн кнопку.")
     return await common_cancel_logic(update, context, query=query)
 
@@ -683,8 +685,6 @@ async def post_fallback_message(update: Update, context: ContextTypes.DEFAULT_TY
             await update.message.reply_text(clean_text(PRIVATE_MESSAGE))
             return
         
-        # Проверяем, не находится ли пользователь в активном диалоге (user_data не пусто)
-        # Это очень упрощенная проверка. ConversationHandler сам решает, что делать с "лишними" сообщениями.
         if not context.user_data or not context.user_data.get(ConversationHandler.STATE): # type: ignore
             await update.message.reply_text(
             "Кажется, мы не находимся в процессе оформления запроса. Нажмите /start, чтобы начать или выбрать услугу 🔮.",
@@ -708,12 +708,12 @@ if __name__ == "__main__":
                 ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name_message)],
                 ASK_DOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_dob_message)],
                 ASK_TAROT_STORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_tarot_story_message)],
-                CONFIRM_DATA: [CallbackQueryHandler(confirm_data_callback, pattern="^confirm_final$")], # Только confirm_final здесь
+                CONFIRM_DATA: [CallbackQueryHandler(confirm_data_callback, pattern="^confirm_final$")], 
             },
             fallbacks=[
                 CommandHandler("cancel", cancel_conv_command), 
-                CommandHandler("start", start_command), # Позволяет перезапустить диалог в любой момент
-                CallbackQueryHandler(cancel_conv_inline_callback, pattern=f"^{CANCEL_CALLBACK_DATA}$") # Обработчик для инлайн кнопки отмены
+                CommandHandler("start", start_command), 
+                CallbackQueryHandler(cancel_conv_inline_callback, pattern=f"^{CANCEL_CALLBACK_DATA}$") 
             ],
             per_message=False, 
         )
@@ -723,8 +723,7 @@ if __name__ == "__main__":
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, post_fallback_message))
 
         logger.info("Бот Замира запускается...")
-        app.run_polling(allowed_updates=Update.ALL_TYPES) # Явно указываем все типы апдейтов
+        app.run_polling(allowed_updates=Update.ALL_TYPES) 
     except Exception as e:
         logger.critical(f"Критическая ошибка при запуске бота: {e}", exc_info=True)
         raise
-
