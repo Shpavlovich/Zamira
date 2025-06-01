@@ -267,6 +267,7 @@ PROMPT_MATRIX_SYSTEM = """
 """
 PROMPT_MATRIX_USER = "Данные клиента: {input_text}"
 # === Конец промптов OpenAI ===
+
 # --- Утилитарные функции ---
 def get_random_variant(variants_list: List[str]) -> str:
     """Возвращает случайный вариант из списка строк."""
@@ -478,7 +479,7 @@ def get_tarot_edit_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("✅ Всё верно, подтверждаю", callback_data="confirm_final_tarot")],
         [InlineKeyboardButton("❌ Отменить всё и начать заново", callback_data=CANCEL_CALLBACK_DATA)]
     ]
-return InlineKeyboardMarkup(buttons)
+    return InlineKeyboardMarkup(buttons)
 # --- Функции ConversationHandler ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
@@ -919,4 +920,3 @@ async def cancel_conv_inline_callback(update: Update, context: ContextTypes.DEFA
     await query.answer() 
     logger.info(f"Пользователь {query.from_user.id} отменил диалог через инлайн кнопку.")
     return await common_cancel_logic(update, context, query=query)
-
