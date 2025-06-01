@@ -240,7 +240,7 @@ PROMPT_MATRIX_SYSTEM = """
          iii. Подробно раскрой, что означают эти КОНКРЕТНЫЕ энергии в данном блоке для жизни клиента. Как они могут проявляться в позитиве (таланты, сильные стороны, возможности) и в негативе (вызовы, блоки, теневые стороны).
          iv.  Приведи 1-2 жизненных примера или аналогии, как эти энергии могут ощущаться или влиять на поведение/выборы человека.
          v.   Дай практические советы и рекомендации: как клиенту лучше всего раскрыть потенциал этих энергий, на что обратить внимание для гармонизации.
-         vi.  Если блок подразумевает временные аспекты или прогнозы (например, самореализация, финансы, отношения, критические моменты), четко ориентируйся на период с {future_start_date}.
+         vi.  Если блок подразумевает временные аспекты или прогнозы (например, самореализацию, финансы, отношения, критические моменты), четко ориентируйся на период с {future_start_date}.
       * Названия 9 блоков (раскрой каждый, опираясь на ДАТУ РОЖДЕНИЯ клиента):
          1️⃣ Ваш личный потенциал и таланты (ключевые энергии личности)
          2️⃣ Духовное предназначение и кармические задачи души (что важно осознать и проработать)
@@ -500,6 +500,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 async def choose_service_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
         query = update.callback_query
+        if not query:
+            logger.error("CallbackQuery отсутствует в update")
+            return ConversationHandler.END
+
+        logger.info(f"Обрабатываю CallbackQuery: data={query.data}, user_id={query.from_user.id}")
         await query.answer()
         user_data = context.user_data 
         if user_data is None:
@@ -521,6 +526,15 @@ async def choose_service_callback(update: Update, context: ContextTypes.DEFAULT_
             return CHOOSE_SERVICE
         elif service_type == "help_section":
             await help_command(update, context)
+            return CHOOSE_SERVICE
+        elif service_type.startswith("faq_"):
+            faq_key = service_type
+            if faq_key in FAQ_ANSWERS:
+                keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="help_section")]]
+                await query.edit_message_text(clean_text(FAQ_ANSWERS[faq_key]), reply_markup=InlineKeyboardMarkup(keyboard))
+            else:
+                logger.warning(f"Неизвестный FAQ ключ: {faq_key}")
+                await query.edit_message_text(clean_text("Произошла ошибка. Попробуйте снова."), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="help_section")]]))
             return CHOOSE_SERVICE
 
         user_data["service_type"] = service_type
@@ -550,7 +564,12 @@ async def choose_service_callback(update: Update, context: ContextTypes.DEFAULT_
             return CHOOSE_SERVICE
     except Exception as e:
         logger.error(f"Ошибка в choose_service_callback: {e}", exc_info=True)
-        await query.message.reply_text("Произошла ошибка. Попробуйте позже.")
+        if query and query.message and query.message.chat:
+            await query.message.reply_text("Произошла ошибка. Попробуйте позже.")
+        else:
+            logger.error("Не удалось отправить сообщение об ошибке: query или query.message отсутствует")
+            if update.effective_chat:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="Произошла ошибка. Попробуйте позже.")
         return ConversationHandler.END
 
 async def ask_matrix_name_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -976,7 +995,7 @@ async def common_cancel_logic(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ConversationHandler.END
     except Exception as e:
         logger.error(f"Ошибка в common_cancel_logic: {e}", exc_info=True)
-        if query:
+        if query and query.message:
             await query.message.reply_text("Произошла ошибка при отмене. Попробуйте позже.")
         elif update.message:
             await update.message.reply_text("Произошла ошибка при отмене. Попробуйте позже.")
@@ -1012,7 +1031,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await update.message.reply_text(clean_text(help_text), reply_markup=InlineKeyboardMarkup(keyboard))
     except Exception as e:
         logger.error(f"Ошибка в help_command: {e}", exc_info=True)
-        if query:
+        if query and query.message:
             await query.message.reply_text("Произошла ошибка. Попробуйте позже.")
         elif update.message:
             await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
@@ -1044,7 +1063,7 @@ async def main() -> None:
                 ],
             },
             fallbacks=[CommandHandler("cancel", cancel_conv_command)],
-            per_message=True,  # Изменено на True для отслеживания callback-запросов
+            per_message=True,  # Для отслеживания callback-запросов
             per_chat=True,
             per_user=True,
         )
