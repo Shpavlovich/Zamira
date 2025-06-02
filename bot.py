@@ -269,8 +269,7 @@ PROMPT_MATRIX_SYSTEM = """
 ЗАПРЕЩЕНО: Любые приветствия ("Здравствуйте!"), представления себя, благодарности за обращение, предложения дополнительных услуг, любые формы прощания ("Всего доброго!"). Только Название, Разбор, Заключение.
 """
 PROMPT_MATRIX_USER = "Данные клиента: {input_text}"
-# === Конец промптов OpenAI ===
-# --- Утилитарные функции ---
+# === Конец промптов OpenAI ===# --- Утилитарные функции ---
 def get_random_variant(variants_list: List[str]) -> str:
     """Возвращает случайный вариант из списка строк."""
     return random.choice(variants_list)
@@ -577,8 +576,7 @@ async def choose_service_callback(update: Update, context: ContextTypes.DEFAULT_
             [InlineKeyboardButton("💡 Помощь / FAQ", callback_data="help_section")]
         ]
         await query.edit_message_text(clean_text(WELCOME_TEXT), reply_markup=InlineKeyboardMarkup(keyboard_main_fallback))
-        return CHOOSE_SERVICE
-        # --- Функции для Матрицы (продолжение ConversationHandler) ---
+        return CHOOSE_SERVICE# --- Функции для Матрицы (продолжение ConversationHandler) ---
 async def ask_matrix_name_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_data = context.user_data # type: ignore
     name_input = update.message.text
