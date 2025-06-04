@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 CONFIG = {
     "ADMIN_IDS": [7611426172],  # Замени на свой Telegram ID
     "DELAY_SECONDS_MAIN_SERVICE": 9420,  # 2 часа 37 минут (7200 + 2220 секунд)
-    "DELAY_SECONDS_REVIEW_REQUEST": 43200,
+    "DELAY_SECONDS_REVIEW_REQUEST": 43200,  # 12 часов
     "MAX_MESSAGE_LENGTH": 3900,
     "OPENAI_MAX_TOKENS_TAROT": 4000,
     "OPENAI_MAX_TOKENS_MATRIX": 6000,
@@ -144,7 +144,7 @@ ASK_TAROT_OTHER_PEOPLE_TEXT = """\
 """
 
 ASK_TAROT_QUESTIONS_TEXT = f"""\
-(Шаг 5 из 5) Мы почти у цели. Остался заключительный шаг – ваши вопросы к картам.
+((Шаг 5 из 5) Мы почти у цели. Остался заключительный шаг – ваши вопросы к картам.
 Пожалуйста, сформулируйте основной вопрос (или два-три четких вопроса), на которые вы хотите получить ответ от Таро.
 Постарайтесь, чтобы вопросы были открытыми, то есть не предполагали простого ответа «да» или «нет», и отражали суть вашей ситуации. Для основного вопроса желательно не менее {CONFIG['MIN_TEXT_LENGTH_TAROT_QUESTION']} знаков.
 Например: «Каковы перспективы развития моих отношений с Михаилом в ближайшие полгода?» или «Что мне важно понять о текущей ситуации на работе, чтобы принять правильное решение?».
@@ -352,8 +352,8 @@ async def ask_gpt(system_prompt_template: str, user_prompt_content: str, max_tok
                 future_end_date_year=future_end_date_year_str
             )
 
-            logger.info(f"Open exclusions для {user_id_for_error}: system_prompt (начало): {system_prompt[:100]}...")
-            logger.info(f"Open exclusions для {user_id_for_error}: user_prompt: {user_prompt_content[:100]}...")
+            logger.info(f"OpenAI запрос для {user_id_for_error}: system_prompt (начало): {system_prompt[:100]}...")
+            logger.info(f"OpenAI запрос для {user_id_for_error}: user_prompt: {user_prompt_content[:100]}...")
 
             response = await openai_client.chat.completions.create(
                 model="gpt-4o",
@@ -578,7 +578,7 @@ async def ask_matrix_dob_message(update: Update, context: ContextTypes.DEFAULT_T
 
     user_data["matrix_dob"] = clean_text(dob_text)
     confirm_text = CONFIRM_DETAILS_MATRIX_TEXT.format(name=user_data["matrix_name"], dob=user_data["matrix_dob"])
-    keyboard = [[InlineKeyboardButton("✅ Всё верно, подтверждаю", callback interfacing="confirm_final_matrix")],
+    keyboard = [[InlineKeyboardButton("✅ Всё верно, подтверждаю", callback_data="confirm_final_matrix")],
                 [InlineKeyboardButton("❌ Отменить", callback_data=CANCEL_CALLBACK_DATA)]]
     await update.message.reply_text(confirm_text, reply_markup=InlineKeyboardMarkup(keyboard))
     return CONFIRM_MATRIX_DATA
@@ -682,7 +682,7 @@ async def show_tarot_confirm_options_message(update: Update, context: ContextTyp
         if user_data: user_data.clear()
         return CHOOSE_SERVICE
 
-    confirm_text_display = CONFIRM_DETAILS_TAROT_TEXT_DISPLAY.format(
+    confirm_text_display = CONF MINI_DETAILS_TAROT_TEXT_DISPLAY.format(
         main_person_name=user_data.get("tarot_main_person_name", "-"),
         main_person_dob=user_data.get("tarot_main_person_dob", "-"),
         backstory=user_data.get("tarot_backstory", "-"),
